@@ -1,0 +1,31 @@
+openapi: 3.0.3
+info:
+  title: TradeFlow API
+  version: 1.0.0
+  description: OpenAPI starter spec for TradeFlow API health endpoints.
+servers:
+  - url: http://localhost:4000
+    description: Local development
+paths:
+  /api/v1/health:
+    get:
+      tags: [Health]
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+  /api/v1/health/readiness:
+    get:
+      tags: [Health]
+      summary: Readiness check for integrations
+      parameters:
+        - in: query
+          name: verbose
+          schema:
+            type: boolean
+          required: false
+      responses:
+        '200':
+          description: Service is ready
+        '503':
+          description: Service is not ready

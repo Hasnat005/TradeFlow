@@ -38,5 +38,9 @@
     "prettier": "^3.8.1",
     "typescript": "~5.9.2"
   },
-  "private": true
+  "private": true,
+  "description": "Production-ready React Native fintech starter built with Expo and TypeScript.",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }
