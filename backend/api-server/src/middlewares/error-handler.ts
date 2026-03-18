@@ -1,5 +1,6 @@
 import { ErrorRequestHandler } from 'express';
 
+import { env } from '../config/env';
 import { AppError } from '../utils/app-error';
 import { logger } from '../utils/logger';
 
@@ -23,7 +24,7 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, next) => {
     success: false,
     error: {
       code: 'INTERNAL_SERVER_ERROR',
-      message: 'Internal server error',
+      message: env.NODE_ENV === 'development' && error instanceof Error ? error.message : 'Internal server error',
     },
   });
 };

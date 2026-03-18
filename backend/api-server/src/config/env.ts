@@ -40,6 +40,8 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   API_PREFIX: z.string().default('/api/v1'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  JWT_SECRET: z.string().default('dev-change-this-secret'),
+  DATA_ENCRYPTION_KEY: z.string().default('dev-change-this-encryption-key'),
   SUPABASE_URL: optionalString,
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
   DATABASE_URL: optionalString,

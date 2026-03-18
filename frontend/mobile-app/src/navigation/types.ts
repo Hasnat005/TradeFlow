@@ -1,15 +1,34 @@
+import { NavigatorScreenParams } from '@react-navigation/native';
+
 export type AuthStackParamList = {
   Login: undefined;
   Register: undefined;
+  ForgotPassword: undefined;
+};
+
+export type InvoicesStackParamList = {
+  InvoiceList: undefined;
+  InvoiceDetail: { invoiceId: string };
+  CreateInvoice: undefined;
+};
+
+export type FinancingStackParamList = {
+  FinancingDashboard: undefined;
+  FinancingRequest: { invoiceId?: string } | undefined;
+  FinancingDetail: { requestId: string };
+};
+
+export type OrdersStackParamList = {
+  OrdersDashboard: undefined;
+  CreatePurchaseOrder: undefined;
+  OrderDetail: { orderId: string };
 };
 
 export type MainTabParamList = {
   Dashboard: undefined;
-  PurchaseOrders: undefined;
-  Invoices: undefined;
-  Financing: undefined;
-  Guarantees: undefined;
-  Transactions: undefined;
+  Invoices: NavigatorScreenParams<InvoicesStackParamList>;
+  Financing: NavigatorScreenParams<FinancingStackParamList>;
+  Orders: NavigatorScreenParams<OrdersStackParamList>;
   Profile: undefined;
 };
 

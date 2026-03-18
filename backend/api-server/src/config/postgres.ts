@@ -7,16 +7,25 @@ function resolveSslConfig() {
     return false;
   }
 
+  const isSupabaseDatabase = env.DATABASE_URL.includes('.supabase.co');
+  const rejectUnauthorized = env.PG_SSL_REJECT_UNAUTHORIZED ?? (env.NODE_ENV === 'production');
+
   if (env.PG_SSL_CA) {
     return {
       ca: env.PG_SSL_CA,
-      rejectUnauthorized: env.PG_SSL_REJECT_UNAUTHORIZED ?? true,
+      rejectUnauthorized,
+    };
+  }
+
+  if (isSupabaseDatabase) {
+    return {
+      rejectUnauthorized,
     };
   }
 
   if (env.NODE_ENV === 'production') {
     return {
-      rejectUnauthorized: env.PG_SSL_REJECT_UNAUTHORIZED ?? true,
+      rejectUnauthorized,
     };
   }
 
