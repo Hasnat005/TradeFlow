@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 import { env } from '../config/env';
 import { isSupabaseConfigured, supabaseAdmin } from '../config/supabase';
