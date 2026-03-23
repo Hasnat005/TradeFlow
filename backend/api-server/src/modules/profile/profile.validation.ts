@@ -18,3 +18,10 @@ export const addBankBodySchema = z.object({
   bankName: z.string().min(2),
   accountNumber: z.string().min(8),
 });
+
+export const addDocumentBodySchema = z.object({
+  documentType: z.string().min(2),
+  fileName: z.string().min(3),
+  fileBase64: z.string().min(8),
+  contentType: z.string().min(3).default('application/octet-stream'),
+});

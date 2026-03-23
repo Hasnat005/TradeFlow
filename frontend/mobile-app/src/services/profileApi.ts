@@ -2,7 +2,7 @@ import { apiClient } from './apiClient';
 
 export type UpdateProfilePayload = Partial<{
   companyName: string;
-  businessType: 'Supplier' | 'Distributor' | 'Exporter';
+  businessType: 'Supplier' | 'Buyer / Distributor' | 'Exporter';
   address: string;
   taxId: string;
   industryType: string;
@@ -19,42 +19,45 @@ export type AddBankAccountPayload = {
   accountNumber: string;
 };
 
-export async function getProfile(token: string) {
-  const response = await apiClient.get('/profile', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export type UploadDocumentPayload = {
+  documentType: string;
+  fileName: string;
+  fileBase64: string;
+  contentType: string;
+};
+
+export async function getProfile() {
+  const response = await apiClient.get('/profile');
 
   return response.data;
 }
 
-export async function updateProfile(payload: UpdateProfilePayload, token: string) {
-  const response = await apiClient.patch('/profile', payload, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function updateProfile(payload: UpdateProfilePayload) {
+  const response = await apiClient.patch('/profile', payload);
 
   return response.data;
 }
 
-export async function changeProfilePassword(payload: ChangePasswordPayload, token: string) {
-  const response = await apiClient.patch('/profile/password', payload, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function changeProfilePassword(payload: ChangePasswordPayload) {
+  const response = await apiClient.patch('/profile/password', payload);
 
   return response.data;
 }
 
-export async function addProfileBankAccount(payload: AddBankAccountPayload, token: string) {
-  const response = await apiClient.post('/profile/bank', payload, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function addProfileBankAccount(payload: AddBankAccountPayload) {
+  const response = await apiClient.post('/profile/bank', payload);
 
   return response.data;
 }
 
-export async function getProfileDocuments(token: string) {
-  const response = await apiClient.get('/profile/documents', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function getProfileDocuments() {
+  const response = await apiClient.get('/profile/documents');
+
+  return response.data;
+}
+
+export async function uploadProfileDocument(payload: UploadDocumentPayload) {
+  const response = await apiClient.post('/profile/documents', payload);
 
   return response.data;
 }

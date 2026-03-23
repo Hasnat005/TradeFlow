@@ -19,10 +19,11 @@ export function calculateRepayment(amount: number, ratePercent: number) {
 export function getStatusSortWeight(status: FinancingStatus) {
   const order: Record<FinancingStatus, number> = {
     Pending: 0,
-    Approved: 1,
-    Disbursed: 2,
-    Repaid: 3,
-    Rejected: 4,
+    'Under Review': 1,
+    Approved: 2,
+    Disbursed: 3,
+    Repaid: 4,
+    Rejected: 5,
   };
 
   return order[status];

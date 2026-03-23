@@ -11,10 +11,11 @@ export function StatusBadge({ status }: StatusBadgeProps) {
   const theme = useAppTheme();
 
   const statusColorMap: Record<InvoiceStatus, string> = {
-    Pending: theme.colors.warning,
+    Draft: theme.colors.warning,
+    Sent: theme.colors.info,
+    Financed: theme.colors.info,
     Paid: theme.colors.success,
     Overdue: theme.colors.danger,
-    Financed: theme.colors.info,
   };
 
   const color = statusColorMap[status];

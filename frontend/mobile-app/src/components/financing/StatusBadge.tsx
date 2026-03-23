@@ -12,6 +12,7 @@ export function StatusBadge({ status }: Props) {
 
   const colorByStatus: Record<FinancingStatus, string> = {
     Pending: theme.colors.warning,
+    'Under Review': theme.colors.warning,
     Approved: theme.colors.success,
     Rejected: theme.colors.danger,
     Disbursed: theme.colors.info,
@@ -20,8 +21,10 @@ export function StatusBadge({ status }: Props) {
 
   const color = colorByStatus[status];
 
+  const repaidTone = status === 'Repaid' ? '35' : '16';
+
   return (
-    <View style={[styles.badge, { borderColor: `${color}40`, backgroundColor: `${color}16` }]}>
+    <View style={[styles.badge, { borderColor: `${color}40`, backgroundColor: `${color}${repaidTone}` }]}>
       <Text style={[styles.label, { color }]}>{status}</Text>
     </View>
   );

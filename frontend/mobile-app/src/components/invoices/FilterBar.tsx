@@ -12,7 +12,7 @@ type FilterBarProps = {
   onDateRangeChange: (range: InvoiceDateRange) => void;
 };
 
-const STATUS_OPTIONS: InvoiceStatusFilter[] = ['All', 'Pending', 'Paid', 'Overdue'];
+const STATUS_OPTIONS: InvoiceStatusFilter[] = ['All', 'Draft', 'Sent', 'Financed', 'Paid', 'Overdue'];
 
 export function FilterBar({
   statusFilter,

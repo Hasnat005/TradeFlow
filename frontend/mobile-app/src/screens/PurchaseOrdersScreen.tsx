@@ -4,11 +4,13 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { OrdersEmptyState } from '../components/orders/OrdersEmptyState';
+import { OrdersLoadingSkeleton } from '../components/orders/OrdersLoadingSkeleton';
 import { OrderCard } from '../components/orders/OrderCard';
 import { SummaryCard } from '../components/orders/SummaryCard';
+import { useOrdersListQuery } from '../features/orders/hooks/useOrders';
 import { OrdersDateRange, OrdersStatusFilter } from '../features/orders/types';
-import { useOrdersStore } from '../features/orders/store/useOrdersStore';
-import { formatCurrency, normalizeDate } from '../features/orders/utils';
+import { formatCurrency } from '../features/orders/utils';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { OrdersStackParamList } from '../navigation/types';
 
@@ -19,47 +21,39 @@ const STATUS_OPTIONS: OrdersStatusFilter[] = ['All', 'Draft', 'Sent', 'Completed
 export function PurchaseOrdersScreen({ navigation }: Props) {
   const theme = useAppTheme();
   const tabBarHeight = useBottomTabBarHeight();
-  const orders = useOrdersStore((state) => state.orders);
 
   const [statusFilter, setStatusFilter] = useState<OrdersStatusFilter>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [dateRange, setDateRange] = useState<OrdersDateRange>({});
 
-  const filteredOrders = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const from = dateRange.from ? normalizeDate(dateRange.from) : undefined;
-    const to = dateRange.to ? normalizeDate(dateRange.to) : undefined;
+  const query = useMemo(
+    () => ({
+      status: statusFilter === 'All' ? undefined : statusFilter,
+      search: searchQuery.trim().length > 0 ? searchQuery.trim() : undefined,
+      from: dateRange.from,
+      to: dateRange.to,
+    }),
+    [dateRange.from, dateRange.to, searchQuery, statusFilter],
+  );
 
-    return orders.filter((order) => {
-      const statusMatch = statusFilter === 'All' ? true : order.status === statusFilter;
-      const searchMatch =
-        query.length === 0 ||
-        order.poNumber.toLowerCase().includes(query) ||
-        order.supplierName.toLowerCase().includes(query);
-      const orderDate = normalizeDate(order.orderDate);
-      const fromMatch = from && orderDate ? orderDate >= from : true;
-      const toMatch = to && orderDate ? orderDate <= to : true;
-
-      return statusMatch && searchMatch && fromMatch && toMatch;
-    });
-  }, [dateRange.from, dateRange.to, orders, searchQuery, statusFilter]);
+  const { data: filteredOrders = [], isLoading, isError, refetch } = useOrdersListQuery(query);
 
   const summary = useMemo(() => {
-    const pendingCount = orders.filter((order) => ['Draft', 'Sent'].includes(order.status)).length;
-    const approvedCount = orders.filter((order) => order.status === 'Accepted').length;
-    const completedCount = orders.filter((order) => order.status === 'Completed').length;
+    const pendingCount = filteredOrders.filter((order) => ['Draft', 'Sent'].includes(order.status)).length;
+    const approvedCount = filteredOrders.filter((order) => order.status === 'Accepted').length;
+    const completedCount = filteredOrders.filter((order) => order.status === 'Completed').length;
 
     return {
-      totalOrders: orders.length,
-      totalValue: orders.reduce((sum, order) => sum + order.totalAmount, 0),
+      totalOrders: filteredOrders.length,
+      totalValue: filteredOrders.reduce((sum, order) => sum + order.totalAmount, 0),
       pendingCount,
       approvedCount,
       completedCount,
-      deliveriesDueToday: orders.filter(
+      deliveriesDueToday: filteredOrders.filter(
         (order) => order.expectedDeliveryDate === new Date().toISOString().slice(0, 10),
       ).length,
     };
-  }, [orders]);
+  }, [filteredOrders]);
 
   const listBottomPadding = tabBarHeight + 92;
 
@@ -104,7 +98,7 @@ export function PurchaseOrdersScreen({ navigation }: Props) {
 
             <View style={styles.alertsWrap}>
               <View style={[styles.alertCard, { backgroundColor: theme.colors.surface, borderColor: `${theme.colors.warning}40` }]}>
-                <Text style={[styles.alertTitle, { color: theme.colors.warning }]}>3 orders awaiting approval</Text>
+                <Text style={[styles.alertTitle, { color: theme.colors.warning }]}>{summary.pendingCount} orders awaiting approval</Text>
                 <Text style={[styles.alertText, { color: theme.colors.muted }]}>Follow up with suppliers for confirmation.</Text>
               </View>
               <View style={[styles.alertCard, { backgroundColor: theme.colors.surface, borderColor: `${theme.colors.info}40` }]}>
@@ -163,13 +157,28 @@ export function PurchaseOrdersScreen({ navigation }: Props) {
             </View>
 
             <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Orders</Text>
+
+            {isLoading ? <OrdersLoadingSkeleton /> : null}
+
+            {isError ? (
+              <OrdersEmptyState
+                title="Unable to load orders"
+                message="Please check your connection and try again."
+                actionLabel="Retry"
+                onAction={() => {
+                  void refetch();
+                }}
+              />
+            ) : null}
           </View>
         }
         ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No purchase orders found</Text>
-            <Text style={[styles.emptyText, { color: theme.colors.muted }]}>Try adjusting filters or creating a new order.</Text>
-          </View>
+          !isLoading && !isError ? (
+            <OrdersEmptyState
+              title="No purchase orders found"
+              message="Try adjusting filters or creating a new order."
+            />
+          ) : null
         }
       />
 
@@ -270,19 +279,6 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: 10,
-  },
-  emptyWrap: {
-    marginTop: 36,
-    alignItems: 'center',
-    gap: 4,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  emptyText: {
-    fontSize: 13,
-    fontWeight: '500',
   },
   fab: {
     position: 'absolute',

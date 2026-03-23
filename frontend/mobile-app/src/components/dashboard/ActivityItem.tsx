@@ -1,36 +1,46 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '../../hooks/useAppTheme';
+import { formatCurrency } from '../../features/invoices/utils';
 
-type ActivityStatus = 'pending' | 'approved' | 'completed';
+type ActivityStatus = 'success' | 'warning' | 'danger' | 'info';
 
 type ActivityItemProps = {
   title: string;
   description: string;
   timestamp: string;
   status: ActivityStatus;
+  amount?: number;
 };
 
-export function ActivityItem({ title, description, timestamp, status }: ActivityItemProps) {
+export function ActivityItem({ title, description, timestamp, status, amount }: ActivityItemProps) {
   const theme = useAppTheme();
 
   const statusColor =
-    status === 'pending'
+    status === 'warning'
       ? theme.colors.warning
-      : status === 'approved'
-        ? theme.colors.info
-        : theme.colors.success;
+      : status === 'danger'
+        ? theme.colors.danger
+        : status === 'success'
+          ? theme.colors.success
+          : theme.colors.info;
 
   return (
-    <View style={[styles.item, { borderBottomColor: theme.colors.border }]}> 
+    <View style={[styles.item, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}> 
       <View style={styles.left}>
         <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
         <Text style={[styles.description, { color: theme.colors.muted }]}>{description}</Text>
         <Text style={[styles.time, { color: theme.colors.muted }]}>{timestamp}</Text>
       </View>
 
-      <View style={[styles.badge, { backgroundColor: `${statusColor}20` }]}>
-        <Text style={[styles.badgeText, { color: statusColor }]}>{status}</Text>
+      <View style={styles.rightWrap}>
+        {amount !== undefined ? (
+          <Text style={[styles.amount, { color: theme.colors.text }]}>{formatCurrency(amount)}</Text>
+        ) : null}
+
+        <View style={[styles.badge, { backgroundColor: `${statusColor}20` }]}>
+          <Text style={[styles.badgeText, { color: statusColor }]}>{status}</Text>
+        </View>
       </View>
     </View>
   );
@@ -40,7 +50,10 @@ const styles = StyleSheet.create({
   item: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
     borderBottomWidth: 1,
   },
   left: {
@@ -49,11 +62,11 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   title: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   description: {
-    fontSize: 12,
+    fontSize: 11,
   },
   time: {
     fontSize: 11,
@@ -64,6 +77,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
+  },
+  rightWrap: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  amount: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   badgeText: {
     fontSize: 11,

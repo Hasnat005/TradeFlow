@@ -1,9 +1,18 @@
+import { randomUUID } from 'crypto';
+
 import { AppError } from '../utils/app-error';
 import { OrderStatus, OrdersRepository } from '../repositories/orders.repository';
 
 type AuthContext = {
   userId: string;
   companyId: string;
+};
+
+type ListOrdersFilter = {
+  status?: OrderStatus;
+  search?: string;
+  from?: string;
+  to?: string;
 };
 
 type CreateOrderInput = {
@@ -39,8 +48,8 @@ export class OrdersService {
     });
   }
 
-  async listOrders(auth: AuthContext, status?: OrderStatus) {
-    return this.ordersRepository.findAllByCompany(auth.companyId, status);
+  async listOrders(auth: AuthContext, filter: ListOrdersFilter = {}) {
+    return this.ordersRepository.findAllByCompany(auth.companyId, filter);
   }
 
   async getOrderById(id: string, auth: AuthContext) {
@@ -104,5 +113,32 @@ export class OrdersService {
     }
 
     return updated;
+  }
+
+  async convertOrderToInvoice(id: string, auth: AuthContext) {
+    const order = await this.getOrderById(id, auth);
+
+    if (order.status !== 'Completed') {
+      throw new AppError(409, 'Only Completed orders can be converted to invoice', 'ORDER_CONVERT_NOT_ALLOWED');
+    }
+
+    if (order.linked_invoice_id) {
+      return {
+        orderId: order.id,
+        invoiceId: order.linked_invoice_id,
+      };
+    }
+
+    const invoiceId = `INV-${randomUUID().slice(0, 8).toUpperCase()}`;
+    const updated = await this.ordersRepository.linkInvoice(id, auth.companyId, invoiceId);
+
+    if (!updated) {
+      throw new AppError(404, 'Purchase order not found', 'ORDER_NOT_FOUND');
+    }
+
+    return {
+      orderId: updated.id,
+      invoiceId,
+    };
   }
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { clearAuthSession, readAuthSession, storeAuthSession } from '../services/authStorage';
+import { useProfileStore } from './useProfileStore';
 
 type ThemeMode = 'light' | 'dark';
 
@@ -61,6 +62,7 @@ export const useAppStore = create<AppState>((set) => ({
   },
   logout: async () => {
     await clearAuthSession();
+    useProfileStore.getState().resetProfileState();
 
     set(() => ({
       authToken: undefined,

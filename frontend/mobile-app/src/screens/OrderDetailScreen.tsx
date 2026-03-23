@@ -1,12 +1,18 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { NavigationProp, useNavigation } from '@react-navigation/native';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { OrdersEmptyState } from '../components/orders/OrdersEmptyState';
 import { OrderItemRow } from '../components/orders/OrderItemRow';
 import { StatusBadge } from '../components/orders/StatusBadge';
 import { TimelineStep } from '../components/orders/TimelineStep';
+import {
+  useConvertOrderToInvoiceMutation,
+  useOrderDetailQuery,
+  useUpdateOrderStatusMutation,
+} from '../features/orders/hooks/useOrders';
 import { PurchaseOrderStatus } from '../features/orders/types';
-import { useOrdersStore } from '../features/orders/store/useOrdersStore';
 import { formatCurrency } from '../features/orders/utils';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { MainTabParamList, OrdersStackParamList } from '../navigation/types';
@@ -18,28 +24,57 @@ const WORKFLOW: PurchaseOrderStatus[] = ['Draft', 'Sent', 'Accepted', 'Delivered
 export function OrderDetailScreen({ route, navigation }: Props) {
   const theme = useAppTheme();
   const mainTabNavigation = useNavigation<NavigationProp<MainTabParamList>>();
+  const [actionError, setActionError] = useState<string | undefined>();
 
-  const order = useOrdersStore((state) => state.orders.find((entry) => entry.id === route.params.orderId));
-  const updateStatus = useOrdersStore((state) => state.updateStatus);
-  const cancelOrder = useOrdersStore((state) => state.cancelOrder);
-  const convertToInvoice = useOrdersStore((state) => state.convertToInvoice);
+  const { data: order, isLoading, isError, refetch } = useOrderDetailQuery(route.params.orderId);
+  const updateStatusMutation = useUpdateOrderStatusMutation(route.params.orderId);
+  const convertToInvoiceMutation = useConvertOrderToInvoiceMutation(route.params.orderId);
 
-  if (!order) {
+  if (isLoading) {
     return (
       <View style={[styles.fallback, { backgroundColor: theme.colors.background }]}> 
-        <Text style={[styles.fallbackText, { color: theme.colors.text }]}>Order not found</Text>
+        <Text style={[styles.fallbackText, { color: theme.colors.text }]}>Loading order...</Text>
+      </View>
+    );
+  }
+
+  if (isError || !order) {
+    return (
+      <View style={[styles.fallback, { backgroundColor: theme.colors.background }]}> 
+        <OrdersEmptyState
+          title="Order unavailable"
+          message="We couldn't load this purchase order."
+          actionLabel="Retry"
+          onAction={() => {
+            void refetch();
+          }}
+        />
       </View>
     );
   }
 
   const timelineMap = new Map(order.timeline.map((entry) => [entry.status, entry.timestamp]));
 
-  const onConvertToInvoice = () => {
-    const invoiceId = convertToInvoice(order.id);
-    mainTabNavigation.navigate('Invoices', {
-      screen: 'InvoiceDetail',
-      params: { invoiceId },
-    });
+  const onUpdateStatus = async (status: PurchaseOrderStatus) => {
+    setActionError(undefined);
+    try {
+      await updateStatusMutation.mutateAsync(status);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to update order status.');
+    }
+  };
+
+  const onConvertToInvoice = async () => {
+    setActionError(undefined);
+    try {
+      const data = await convertToInvoiceMutation.mutateAsync();
+      mainTabNavigation.navigate('Invoices', {
+        screen: 'InvoiceDetail',
+        params: { invoiceId: data.invoiceId },
+      });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to convert order to invoice.');
+    }
   };
 
   return (
@@ -89,7 +124,9 @@ export function OrderDetailScreen({ route, navigation }: Props) {
       <View style={styles.actionsWrap}>
         {order.status === 'Draft' ? (
           <Pressable
-            onPress={() => updateStatus(order.id, 'Sent')}
+            onPress={() => {
+              void onUpdateStatus('Sent');
+            }}
             style={({ pressed }) => [
               styles.primaryAction,
               { backgroundColor: theme.colors.primary, opacity: pressed ? 0.92 : 1 },
@@ -101,7 +138,18 @@ export function OrderDetailScreen({ route, navigation }: Props) {
 
         {order.status === 'Draft' ? (
           <Pressable
-            onPress={() => navigation.navigate('CreatePurchaseOrder')}
+            onPress={() =>
+              navigation.navigate('CreatePurchaseOrder', {
+                orderId: order.id,
+                initialValues: {
+                  supplierName: order.supplierName,
+                  expectedDeliveryDate: order.expectedDeliveryDate,
+                  notes: order.notes,
+                  status: order.status,
+                  items: order.items,
+                },
+              })
+            }
             style={({ pressed }) => [
               styles.secondaryAction,
               {
@@ -116,7 +164,9 @@ export function OrderDetailScreen({ route, navigation }: Props) {
 
         {order.status === 'Accepted' ? (
           <Pressable
-            onPress={() => updateStatus(order.id, 'Delivered')}
+            onPress={() => {
+              void onUpdateStatus('Delivered');
+            }}
             style={({ pressed }) => [
               styles.secondaryAction,
               {
@@ -131,7 +181,9 @@ export function OrderDetailScreen({ route, navigation }: Props) {
 
         {order.status === 'Delivered' ? (
           <Pressable
-            onPress={() => updateStatus(order.id, 'Completed')}
+            onPress={() => {
+              void onUpdateStatus('Completed');
+            }}
             style={({ pressed }) => [
               styles.secondaryAction,
               {
@@ -146,7 +198,9 @@ export function OrderDetailScreen({ route, navigation }: Props) {
 
         {(order.status === 'Draft' || order.status === 'Sent') ? (
           <Pressable
-            onPress={() => cancelOrder(order.id)}
+            onPress={() => {
+              void onUpdateStatus('Rejected');
+            }}
             style={({ pressed }) => [
               styles.secondaryAction,
               {
@@ -160,7 +214,9 @@ export function OrderDetailScreen({ route, navigation }: Props) {
         ) : null}
 
         <Pressable
-          onPress={onConvertToInvoice}
+          onPress={() => {
+            void onConvertToInvoice();
+          }}
           style={({ pressed }) => [
             styles.primaryAction,
             { backgroundColor: theme.colors.primary, opacity: pressed ? 0.92 : 1 },
@@ -168,6 +224,8 @@ export function OrderDetailScreen({ route, navigation }: Props) {
         >
           <Text style={[styles.primaryActionText, { color: theme.colors.onPrimary }]}>Convert to Invoice</Text>
         </Pressable>
+
+        {actionError ? <Text style={[styles.errorText, { color: theme.colors.danger }]}>{actionError}</Text> : null}
       </View>
     </ScrollView>
   );
@@ -258,5 +316,9 @@ const styles = StyleSheet.create({
   secondaryActionText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  errorText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

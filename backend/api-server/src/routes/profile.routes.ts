@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { ProfileController } from '../controllers/profile.controller';
 import { authenticateJwt } from '../middlewares/authenticate-jwt';
 import { validateRequest } from '../middlewares/validate-request';
-import { addBankBodySchema, changePasswordBodySchema, updateProfileBodySchema } from '../modules/profile';
+import { addBankBodySchema, addDocumentBodySchema, changePasswordBodySchema, updateProfileBodySchema } from '../modules/profile';
 import { ProfileRepository } from '../repositories/profile.repository';
 import { ProfileService } from '../services/profile.service';
 import { asyncHandler } from '../utils/async-handler';
@@ -34,6 +34,12 @@ profileRouter.post(
   '/bank',
   validateRequest({ body: addBankBodySchema }),
   asyncHandler((req, res) => profileController.addBankAccount(req, res)),
+);
+
+profileRouter.post(
+  '/documents',
+  validateRequest({ body: addDocumentBodySchema }),
+  asyncHandler((req, res) => profileController.uploadDocument(req, res)),
 );
 
 profileRouter.get('/documents', asyncHandler((req, res) => profileController.getDocuments(req, res)));

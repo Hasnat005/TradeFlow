@@ -3,7 +3,11 @@ import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { PurchaseOrderItem } from '../features/orders/types';
-import { useOrdersStore } from '../features/orders/store/useOrdersStore';
+import {
+  useCreateOrderMutation,
+  useUpdateOrderMutation,
+  useUpdateOrderStatusMutation,
+} from '../features/orders/hooks/useOrders';
 import { calculateOrderTotal, formatCurrency } from '../features/orders/utils';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { OrdersStackParamList } from '../navigation/types';
@@ -26,14 +30,28 @@ function createEditableItem(index: number): EditableItem {
   };
 }
 
-export function CreatePurchaseOrderScreen({ navigation }: Props) {
+export function CreatePurchaseOrderScreen({ route, navigation }: Props) {
   const theme = useAppTheme();
-  const createOrder = useOrdersStore((state) => state.createOrder);
+  const editOrderId = route.params?.orderId;
+  const initialValues = route.params?.initialValues;
 
-  const [supplierName, setSupplierName] = useState('');
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState('');
-  const [notes, setNotes] = useState('');
-  const [items, setItems] = useState<EditableItem[]>([createEditableItem(1)]);
+  const createOrderMutation = useCreateOrderMutation();
+  const updateOrderMutation = useUpdateOrderMutation(editOrderId ?? '');
+  const updateOrderStatusMutation = useUpdateOrderStatusMutation(editOrderId ?? '');
+
+  const [supplierName, setSupplierName] = useState(initialValues?.supplierName ?? '');
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(initialValues?.expectedDeliveryDate ?? '');
+  const [notes, setNotes] = useState(initialValues?.notes ?? '');
+  const [items, setItems] = useState<EditableItem[]>(
+    initialValues?.items?.length
+      ? initialValues.items.map((item, index) => ({
+          id: item.id || `item-${index + 1}`,
+          itemName: item.itemName,
+          quantity: String(item.quantity),
+          unitPrice: String(item.unitPrice),
+        }))
+      : [createEditableItem(1)],
+  );
   const [errorText, setErrorText] = useState<string | undefined>();
 
   const parsedItems: PurchaseOrderItem[] = useMemo(
@@ -64,7 +82,12 @@ export function CreatePurchaseOrderScreen({ navigation }: Props) {
     setItems((previous) => (previous.length > 1 ? previous.filter((item) => item.id !== id) : previous));
   };
 
-  const submit = (submitOrder: boolean) => {
+  const submit = async (submitOrder: boolean) => {
+    if (editOrderId && initialValues?.status && initialValues.status !== 'Draft') {
+      setErrorText('Only Draft orders can be edited.');
+      return;
+    }
+
     if (supplierName.trim().length < 2 || expectedDeliveryDate.trim().length === 0) {
       setErrorText('Supplier name and expected delivery date are required.');
       return;
@@ -77,15 +100,43 @@ export function CreatePurchaseOrderScreen({ navigation }: Props) {
 
     setErrorText(undefined);
 
-    const orderId = createOrder({
-      supplierName: supplierName.trim(),
-      expectedDeliveryDate: expectedDeliveryDate.trim(),
-      notes: notes.trim() || undefined,
-      items: parsedItems,
-      submit: submitOrder,
-    });
+    try {
+      if (editOrderId) {
+        await updateOrderMutation.mutateAsync({
+          supplier_name: supplierName.trim(),
+          expected_delivery_date: expectedDeliveryDate.trim(),
+          notes: notes.trim() || undefined,
+          items: parsedItems.map((item) => ({
+            item_name: item.itemName,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+          })),
+        });
 
-    navigation.replace('OrderDetail', { orderId });
+        if (submitOrder) {
+          await updateOrderStatusMutation.mutateAsync('Sent');
+        }
+
+        navigation.replace('OrderDetail', { orderId: editOrderId });
+        return;
+      }
+
+      const created = await createOrderMutation.mutateAsync({
+        supplier_name: supplierName.trim(),
+        expected_delivery_date: expectedDeliveryDate.trim(),
+        notes: notes.trim() || undefined,
+        status: submitOrder ? 'Sent' : 'Draft',
+        items: parsedItems.map((item) => ({
+          item_name: item.itemName,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+        })),
+      });
+
+      navigation.replace('OrderDetail', { orderId: created.id });
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Unable to save order. Please try again.');
+    }
   };
 
   return (
@@ -179,7 +230,9 @@ export function CreatePurchaseOrderScreen({ navigation }: Props) {
 
       <View style={styles.actionsWrap}>
         <Pressable
-          onPress={() => submit(false)}
+            onPress={() => {
+              void submit(false);
+            }}
           style={({ pressed }) => [
             styles.secondaryAction,
             {
@@ -192,7 +245,9 @@ export function CreatePurchaseOrderScreen({ navigation }: Props) {
         </Pressable>
 
         <Pressable
-          onPress={() => submit(true)}
+            onPress={() => {
+              void submit(true);
+            }}
           style={({ pressed }) => [
             styles.primaryAction,
             { backgroundColor: theme.colors.primary, opacity: pressed ? 0.92 : 1 },

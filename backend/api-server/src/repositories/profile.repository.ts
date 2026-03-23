@@ -64,113 +64,28 @@ const inMemoryCompanies = new Map<string, CompanyRecord>();
 const inMemoryBankAccounts = new Map<string, BankAccountRecord[]>();
 const inMemoryDocuments = new Map<string, DocumentRecord[]>();
 
-function createDefaultUser(userId: string): UserRecord {
-  return {
-    id: userId,
-    name: 'Ava Rahman',
-    email: 'finance@hasnattraders.com',
-    password_hash: '',
-  };
-}
-
-function createDefaultCompany(companyId: string, userId: string): CompanyRecord {
-  return {
-    id: companyId,
-    user_id: userId,
-    company_name: 'Hasnat Traders Ltd.',
-    business_type: 'Distributor',
-    address: 'Plot 32, Dhaka Export Zone',
-    tax_id: 'TIN-3278-8821',
-    industry_type: 'Trade & Distribution',
-    phone_number: '+8801711000000',
-    company_account_id: 'CMP-HTL-90812',
-    verified: true,
-  };
-}
-
-function createDefaultDocuments(companyId: string): DocumentRecord[] {
-  return [
-    {
-      id: randomUUID(),
-      company_id: companyId,
-      document_type: 'Trade license',
-      status: 'Verified',
-      file_url: 'https://files.tradeflow.dev/docs/trade-license.pdf',
-    },
-    {
-      id: randomUUID(),
-      company_id: companyId,
-      document_type: 'Tax certificate',
-      status: 'Pending',
-      file_url: 'https://files.tradeflow.dev/docs/tax-certificate.pdf',
-    },
-    {
-      id: randomUUID(),
-      company_id: companyId,
-      document_type: 'Identity verification',
-      status: 'Verified',
-      file_url: 'https://files.tradeflow.dev/docs/identity.pdf',
-    },
-  ];
-}
-
 export class ProfileRepository {
   async ensureProfileContext(context: EnsureContext) {
     if (!pgPool) {
-      if (!inMemoryUsers.has(context.userId)) {
-        inMemoryUsers.set(context.userId, createDefaultUser(context.userId));
+      if (!inMemoryUsers.has(context.userId) || !inMemoryCompanies.has(context.companyId)) {
+        throw new Error('Profile context not found in memory store');
       }
-      if (!inMemoryCompanies.has(context.companyId)) {
-        inMemoryCompanies.set(context.companyId, createDefaultCompany(context.companyId, context.userId));
-      }
-      if (!inMemoryDocuments.has(context.companyId)) {
-        inMemoryDocuments.set(context.companyId, createDefaultDocuments(context.companyId));
-      }
-      if (!inMemoryBankAccounts.has(context.companyId)) {
-        inMemoryBankAccounts.set(context.companyId, []);
-      }
-
       return;
     }
 
-    await pgPool.query(
+    const result = await pgPool.query(
       `
-      insert into users (id, name, email, password_hash)
-      values ($1, $2, $3, '')
-      on conflict (id) do nothing
+      select 1
+      from companies
+      where id = $1 and user_id = $2
+      limit 1
       `,
-      [context.userId, 'Ava Rahman', `user-${context.userId}@tradeflow.dev`],
+      [context.companyId, context.userId],
     );
 
-    await pgPool.query(
-      `
-      insert into companies (
-        id,
-        user_id,
-        company_name,
-        business_type,
-        address,
-        tax_id,
-        industry_type,
-        phone_number,
-        company_account_id,
-        verified
-      )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
-      on conflict (id) do nothing
-      `,
-      [
-        context.companyId,
-        context.userId,
-        'Hasnat Traders Ltd.',
-        'Distributor',
-        'Plot 32, Dhaka Export Zone',
-        'TIN-3278-8821',
-        'Trade & Distribution',
-        '+8801711000000',
-        `CMP-${context.companyId.slice(0, 8).toUpperCase()}`,
-      ],
-    );
+    if (!result.rows[0]) {
+      throw new Error('Profile context not found');
+    }
   }
 
   async getUserById(userId: string) {
@@ -374,5 +289,116 @@ export class ProfileRepository {
     );
 
     return result.rows;
+  }
+
+  async addDocument(companyId: string, input: { documentType: string; fileUrl: string; status: string }) {
+    if (!pgPool) {
+      const record: DocumentRecord = {
+        id: randomUUID(),
+        company_id: companyId,
+        document_type: input.documentType,
+        status: input.status,
+        file_url: input.fileUrl,
+      };
+
+      const list = inMemoryDocuments.get(companyId) ?? [];
+      list.unshift(record);
+      inMemoryDocuments.set(companyId, list);
+
+      return record;
+    }
+
+    const result = await pgPool.query<DocumentRecord>(
+      `
+      insert into documents (company_id, document_type, status, file_url)
+      values ($1, $2, $3, $4)
+      returning id, company_id, document_type, status, file_url
+      `,
+      [companyId, input.documentType, input.status, input.fileUrl],
+    );
+
+    return result.rows[0];
+  }
+
+  async getAccountSummary(companyId: string) {
+    if (!pgPool) {
+      return {
+        availableBalance: 0,
+        creditLimit: 0,
+        activeFinancingCount: 0,
+        totalTransactions: 0,
+      };
+    }
+
+    const tableCheck = await pgPool.query<{ invoices: string | null; financing_requests: string | null; purchase_orders: string | null }>(
+      `
+      select
+        to_regclass('public.invoices')::text as invoices,
+        to_regclass('public.financing_requests')::text as financing_requests,
+        to_regclass('public.purchase_orders')::text as purchase_orders
+      `,
+    );
+
+    const hasInvoicesTable = Boolean(tableCheck.rows[0]?.invoices);
+    const hasFinancingTable = Boolean(tableCheck.rows[0]?.financing_requests);
+    const hasOrdersTable = Boolean(tableCheck.rows[0]?.purchase_orders);
+
+    let availableBalance = 0;
+    let creditLimit = 0;
+    let activeFinancingCount = 0;
+    let invoiceCount = 0;
+    let orderCount = 0;
+
+    if (hasInvoicesTable) {
+      const invoiceMetrics = await pgPool.query<{ available_balance: string | number; invoice_count: string | number }>(
+        `
+        select
+          coalesce(sum(amount) filter (where status = 'Paid'), 0) as available_balance,
+          count(*) as invoice_count
+        from invoices
+        where company_id = $1
+        `,
+        [companyId],
+      );
+
+      availableBalance = Number(invoiceMetrics.rows[0]?.available_balance ?? 0);
+      invoiceCount = Number(invoiceMetrics.rows[0]?.invoice_count ?? 0);
+    }
+
+    if (hasFinancingTable) {
+      const financingMetrics = await pgPool.query<{ credit_limit: string | number; active_count: string | number }>(
+        `
+        select
+          coalesce(sum(approved_amount), 0) as credit_limit,
+          coalesce(count(*) filter (where status in ('Approved', 'Disbursed')), 0) as active_count
+        from financing_requests
+        where company_id = $1
+        `,
+        [companyId],
+      );
+
+      creditLimit = Number(financingMetrics.rows[0]?.credit_limit ?? 0);
+      activeFinancingCount = Number(financingMetrics.rows[0]?.active_count ?? 0);
+    }
+
+    if (hasOrdersTable) {
+      const orderMetrics = await pgPool.query<{ order_count: string | number }>(
+        `
+        select count(*) as order_count
+        from purchase_orders
+        where company_id = $1
+        `,
+        [companyId],
+      );
+
+      orderCount = Number(orderMetrics.rows[0]?.order_count ?? 0);
+    }
+
+    return {
+      availableBalance,
+      creditLimit,
+      activeFinancingCount,
+      totalTransactions: orderCount + invoiceCount,
+    };
   }
 }

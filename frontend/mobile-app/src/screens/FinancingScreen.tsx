@@ -1,23 +1,57 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useMemo } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { EmptyState } from '../components/financing/EmptyState';
 import { FinancingCard } from '../components/financing/FinancingCard';
 import { CreditCard } from '../components/financing/CreditCard';
-import { sampleFinancingAlerts } from '../features/financing/data';
-import { useFinancingStore } from '../features/financing/store/useFinancingStore';
+import { LoadingSkeleton } from '../components/financing/LoadingSkeleton';
+import { useFinancingListQuery } from '../features/financing/hooks/useFinancing';
+import { FinancingStatus } from '../features/financing/types';
 import { formatCurrency, getStatusSortWeight } from '../features/financing/utils';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { FinancingStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<FinancingStackParamList, 'FinancingDashboard'>;
 
+const STATUS_FILTERS: Array<'All' | FinancingStatus> = [
+  'All',
+  'Pending',
+  'Under Review',
+  'Approved',
+  'Rejected',
+  'Disbursed',
+  'Repaid',
+];
+
 export function FinancingScreen({ navigation }: Props) {
   const theme = useAppTheme();
   const tabBarHeight = useBottomTabBarHeight();
-  const requests = useFinancingStore((state) => state.requests);
+  const [statusFilter, setStatusFilter] = useState<'All' | FinancingStatus>('All');
+  const [search, setSearch] = useState('');
+
+  const query = useMemo(
+    () => ({
+      status: statusFilter === 'All' ? undefined : statusFilter,
+      search: search.trim().length > 0 ? search.trim() : undefined,
+    }),
+    [search, statusFilter],
+  );
+
+  const { data, isLoading, isError, refetch } = useFinancingListQuery(query);
+  const requests = useMemo(() => data?.requests ?? [], [data?.requests]);
+  const alerts = useMemo(() => data?.alerts ?? [], [data?.alerts]);
+  const creditInsights = useMemo(
+    () =>
+      data?.creditInsights ?? {
+        totalLimit: 0,
+        usedLimit: 0,
+        availableLimit: 0,
+      },
+    [data?.creditInsights],
+  );
 
   const sortedRequests = useMemo(
     () =>
@@ -38,21 +72,19 @@ export function FinancingScreen({ navigation }: Props) {
       .filter((request) => request.status === 'Approved' || request.status === 'Disbursed')
       .reduce((sum, request) => sum + (request.approvedAmount ?? request.requestedAmount), 0);
     const repaidAmount = requests.reduce((sum, request) => sum + request.amountPaid, 0);
-    const creditLimit = 120000;
-    const usedLimit = activeAmount;
 
     return {
       totalRequested,
       activeAmount,
-      availableLimit: Math.max(0, creditLimit - usedLimit),
+      availableLimit: Math.max(0, creditInsights.availableLimit),
       repaidAmount,
-      creditLimit,
-      usedLimit,
+      creditLimit: creditInsights.totalLimit,
+      usedLimit: creditInsights.usedLimit,
       activeFacilities: requests.filter((request) =>
         ['Approved', 'Disbursed'].includes(request.status),
       ).length,
     };
-  }, [requests]);
+  }, [creditInsights.availableLimit, creditInsights.totalLimit, creditInsights.usedLimit, requests]);
 
   const onOpenRequest = (requestId: string) => {
     navigation.navigate('FinancingDetail', { requestId });
@@ -73,6 +105,37 @@ export function FinancingScreen({ navigation }: Props) {
           <View style={styles.headerWrap}>
             <Text style={[styles.title, { color: theme.colors.text }]}>Trade Financing</Text>
             <Text style={[styles.subtitle, { color: theme.colors.muted }]}>Request and monitor invoice-backed funding</Text>
+
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search by invoice ID or buyer"
+              placeholderTextColor={theme.colors.muted}
+              style={[styles.searchInput, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface, color: theme.colors.text }]}
+            />
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
+              {STATUS_FILTERS.map((option) => {
+                const selected = option === statusFilter;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => setStatusFilter(option)}
+                    style={[
+                      styles.filterChip,
+                      {
+                        borderColor: selected ? theme.colors.primary : theme.colors.border,
+                        backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: selected ? theme.colors.onPrimary : theme.colors.text, fontWeight: '600' }}>
+                      {option}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
 
             <View style={styles.summaryGrid}>
               <SummaryCard
@@ -102,12 +165,11 @@ export function FinancingScreen({ navigation }: Props) {
                 totalLimit: summary.creditLimit,
                 usedLimit: summary.usedLimit,
                 availableLimit: summary.availableLimit,
-                repaidAmount: summary.repaidAmount,
               }}
             />
 
             <View style={styles.alertsWrap}>
-              {sampleFinancingAlerts.map((alert) => {
+              {alerts.map((alert) => {
                 const colorByTone = {
                   info: theme.colors.info,
                   warning: theme.colors.warning,
@@ -136,7 +198,30 @@ export function FinancingScreen({ navigation }: Props) {
             </View>
 
             <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Financing Requests</Text>
+
+            {isLoading ? <LoadingSkeleton /> : null}
+
+            {isError ? (
+              <EmptyState
+                title="Unable to load financing"
+                message="Please check your connection and try again."
+                actionLabel="Retry"
+                onAction={() => {
+                  void refetch();
+                }}
+              />
+            ) : null}
           </View>
+        }
+        ListEmptyComponent={
+          !isLoading && !isError ? (
+            <EmptyState
+              title="No financing requests yet"
+              message="You can request financing from your approved invoices."
+              actionLabel="Request your first financing"
+              onAction={() => navigation.navigate('FinancingRequest')}
+            />
+          ) : null
         }
       />
 
@@ -204,6 +289,23 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 13,
     fontWeight: '500',
+  },
+  searchInput: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    fontSize: 14,
+  },
+  filtersRow: {
+    gap: 8,
+    paddingRight: 10,
+  },
+  filterChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   summaryGrid: {
     flexDirection: 'row',

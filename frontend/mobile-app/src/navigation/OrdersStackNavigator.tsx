@@ -1,6 +1,8 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import { CreatePurchaseOrderScreen, OrderDetailScreen, PurchaseOrdersScreen } from '../screens';
+import { CreatePurchaseOrderScreen } from '../screens/CreatePurchaseOrderScreen';
+import { OrderDetailScreen } from '../screens/OrderDetailScreen';
+import { PurchaseOrdersScreen } from '../screens/PurchaseOrdersScreen';
 import { OrdersStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<OrdersStackParamList>();

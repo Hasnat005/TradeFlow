@@ -34,7 +34,7 @@ export function InvoiceCard({ invoice, onPress }: InvoiceCardProps) {
       <Text style={[styles.buyerName, { color: theme.colors.text }]}>{invoice.buyerName}</Text>
 
       <View style={styles.rowBetween}>
-        <Text style={[styles.amount, { color: theme.colors.primary }]}>{formatCurrency(invoice.amount)}</Text>
+        <Text style={[styles.amount, { color: theme.colors.primary }]}>{formatCurrency(invoice.totalAmount)}</Text>
         <Text style={[styles.dueDate, { color: theme.colors.muted }]}>Due {invoice.dueDate}</Text>
       </View>
     </Pressable>

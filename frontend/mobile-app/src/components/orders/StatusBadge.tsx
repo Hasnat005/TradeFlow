@@ -13,7 +13,7 @@ export function StatusBadge({ status }: Props) {
   const colorByStatus: Record<PurchaseOrderStatus, string> = {
     Draft: theme.colors.muted,
     Sent: theme.colors.primary,
-    Accepted: theme.colors.success,
+    Accepted: theme.colors.info,
     Rejected: theme.colors.danger,
     Delivered: theme.colors.info,
     Completed: theme.colors.success,

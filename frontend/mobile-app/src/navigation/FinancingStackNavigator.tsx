@@ -1,6 +1,8 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import { FinancingDetailScreen, FinancingRequestScreen, FinancingScreen } from '../screens';
+import { FinancingDetailScreen } from '../screens/FinancingDetailScreen';
+import { FinancingRequestScreen } from '../screens/FinancingRequestScreen';
+import { FinancingScreen } from '../screens/FinancingScreen';
 import { FinancingStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<FinancingStackParamList>();

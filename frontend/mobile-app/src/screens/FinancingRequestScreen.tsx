@@ -2,9 +2,10 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useFinancingStore } from '../features/financing/store/useFinancingStore';
+import { EmptyState } from '../components/financing/EmptyState';
+import { LoadingSkeleton } from '../components/financing/LoadingSkeleton';
+import { useFinancingInvoicesQuery, useRequestFinancingMutation } from '../features/financing/hooks/useFinancing';
 import { calculateEstimatedInterest, calculateRepayment, formatCurrency } from '../features/financing/utils';
-import { useInvoicesStore } from '../features/invoices/store/useInvoicesStore';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { FinancingStackParamList } from '../navigation/types';
 
@@ -12,13 +13,15 @@ type Props = NativeStackScreenProps<FinancingStackParamList, 'FinancingRequest'>
 
 export function FinancingRequestScreen({ route, navigation }: Props) {
   const theme = useAppTheme();
-  const invoices = useInvoicesStore((state) => state.invoices);
-  const requestFinancing = useFinancingStore((state) => state.requestFinancing);
+  const requestMutation = useRequestFinancingMutation();
 
   const defaultInvoiceId = route.params?.invoiceId;
-  const [invoiceId, setInvoiceId] = useState(defaultInvoiceId ?? invoices[0]?.id ?? '');
+  const [searchText, setSearchText] = useState('');
+  const [invoiceId, setInvoiceId] = useState(defaultInvoiceId ?? '');
   const [requestedAmountText, setRequestedAmountText] = useState('');
   const [errorText, setErrorText] = useState<string | undefined>();
+
+  const { data: invoices = [], isLoading, isError, refetch } = useFinancingInvoicesQuery(searchText.trim() || undefined);
 
   const selectedInvoice = invoices.find((invoice) => invoice.id === invoiceId);
 
@@ -26,7 +29,7 @@ export function FinancingRequestScreen({ route, navigation }: Props) {
   const estimatedInterest = useMemo(() => calculateEstimatedInterest(requestedAmount, 2.8), [requestedAmount]);
   const repaymentAmount = useMemo(() => calculateRepayment(requestedAmount, 2.8), [requestedAmount]);
 
-  const submit = () => {
+  const submit = async () => {
     if (!selectedInvoice) {
       setErrorText('Select an invoice to continue.');
       return;
@@ -44,12 +47,16 @@ export function FinancingRequestScreen({ route, navigation }: Props) {
 
     setErrorText(undefined);
 
-    const created = requestFinancing({
-      invoiceId: selectedInvoice.id,
-      requestedAmount,
-    });
+    try {
+      const created = await requestMutation.mutateAsync({
+        invoiceId: selectedInvoice.id,
+        requestedAmount,
+      });
 
-    navigation.replace('FinancingDetail', { requestId: created.id });
+      navigation.replace('FinancingDetail', { requestId: created.id });
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Unable to submit financing request.');
+    }
   };
 
   return (
@@ -60,6 +67,35 @@ export function FinancingRequestScreen({ route, navigation }: Props) {
     >
       <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}> 
         <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Select Invoice</Text>
+
+        <TextInput
+          value={searchText}
+          onChangeText={setSearchText}
+          placeholder="Search invoice ID or buyer"
+          placeholderTextColor={theme.colors.muted}
+          style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text }]}
+        />
+
+        {isLoading ? <LoadingSkeleton /> : null}
+
+        {isError ? (
+          <EmptyState
+            title="Unable to load invoices"
+            message="Please try again."
+            actionLabel="Retry"
+            onAction={() => {
+              void refetch();
+            }}
+          />
+        ) : null}
+
+        {!isLoading && !isError && invoices.length === 0 ? (
+          <EmptyState
+            title="No invoices available"
+            message="Create invoices first to request financing."
+          />
+        ) : null}
+
         {invoices.map((invoice) => {
           const selected = invoice.id === invoiceId;
           return (
@@ -106,13 +142,19 @@ export function FinancingRequestScreen({ route, navigation }: Props) {
         </View>
 
         {selectedInvoice ? (
-          <Text style={[styles.hint, { color: theme.colors.muted }]}>Invoice value: {formatCurrency(selectedInvoice.amount)}</Text>
+          <View style={styles.invoiceMetaWrap}>
+            <Text style={[styles.hint, { color: theme.colors.muted }]}>Invoice value: {formatCurrency(selectedInvoice.amount)}</Text>
+            <Text style={[styles.hint, { color: theme.colors.muted }]}>Buyer: {selectedInvoice.buyerName}</Text>
+            <Text style={[styles.hint, { color: theme.colors.muted }]}>Due: {selectedInvoice.dueDate ?? '--'}</Text>
+          </View>
         ) : null}
 
         {errorText ? <Text style={[styles.errorText, { color: theme.colors.danger }]}>{errorText}</Text> : null}
 
         <Pressable
-          onPress={submit}
+          onPress={() => {
+            void submit();
+          }}
           style={({ pressed }) => [
             styles.submitButton,
             { backgroundColor: theme.colors.primary, opacity: pressed ? 0.92 : 1 },
@@ -184,6 +226,9 @@ const styles = StyleSheet.create({
   },
   hint: {
     fontSize: 12,
+  },
+  invoiceMetaWrap: {
+    gap: 2,
   },
   errorText: {
     fontSize: 12,

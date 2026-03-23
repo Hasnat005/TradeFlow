@@ -1,46 +1,69 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { NavigationProp, useNavigation } from '@react-navigation/native';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { EmptyState } from '../components/invoices/EmptyState';
+import { InvoiceItemRow } from '../components/invoices/InvoiceItemRow';
 import { StatusBadge } from '../components/invoices/StatusBadge';
+import { TimelineStep } from '../components/invoices/TimelineStep';
+import { useInvoiceDetailQuery, useUpdateInvoiceStatusMutation } from '../features/invoices/hooks/useInvoices';
+import { InvoiceStatus } from '../features/invoices/types';
 import { formatCurrency } from '../features/invoices/utils';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { useInvoicesStore } from '../features/invoices/store/useInvoicesStore';
 import { InvoicesStackParamList, MainTabParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<InvoicesStackParamList, 'InvoiceDetail'>;
 
+const WORKFLOW: InvoiceStatus[] = ['Draft', 'Sent', 'Financed', 'Paid'];
+
 export function InvoiceDetailScreen({ route }: Props) {
   const theme = useAppTheme();
   const mainTabNavigation = useNavigation<NavigationProp<MainTabParamList>>();
-  const { invoiceId } = route.params;
+  const [actionError, setActionError] = useState<string | undefined>();
+  const [paymentAmountInput, setPaymentAmountInput] = useState('');
 
-  const invoice = useInvoicesStore((state) =>
-    state.invoices.find((entry) => entry.id === invoiceId),
-  );
-  const markAsPaid = useInvoicesStore((state) => state.markAsPaid);
+  const { data: invoice, isLoading, isError, refetch } = useInvoiceDetailQuery(route.params.invoiceId);
+  const updateStatusMutation = useUpdateInvoiceStatusMutation(route.params.invoiceId);
 
-  if (!invoice) {
+  if (isLoading) {
     return (
-      <View style={[styles.fallback, { backgroundColor: theme.colors.background }]}> 
-        <Text style={[styles.fallbackTitle, { color: theme.colors.text }]}>Invoice not found</Text>
+      <View style={[styles.fallback, { backgroundColor: theme.colors.background }]}>
+        <Text style={[styles.fallbackTitle, { color: theme.colors.text }]}>Loading invoice...</Text>
       </View>
     );
   }
 
-  const timeline = [
-    { title: 'Invoice Created', date: invoice.createdAt, done: true },
-    {
-      title: 'Financing Requested',
-      date: invoice.financingStatus === 'Not Requested' ? '--' : invoice.createdAt,
-      done: invoice.financingStatus !== 'Not Requested',
-    },
-    {
-      title: invoice.status === 'Paid' ? 'Invoice Paid' : 'Payment Pending',
-      date: invoice.status === 'Paid' ? new Date().toISOString().slice(0, 10) : invoice.dueDate,
-      done: invoice.status === 'Paid',
-    },
-  ];
+  if (isError || !invoice) {
+    return (
+      <View style={[styles.fallback, { backgroundColor: theme.colors.background }]}>
+        <EmptyState
+          title="Invoice unavailable"
+          message="We couldn't load this invoice."
+          actionLabel="Retry"
+          onAction={() => {
+            void refetch();
+          }}
+        />
+      </View>
+    );
+  }
+
+  const timelineMap = new Map(invoice.timeline.map((entry) => [entry.status, entry.timestamp]));
+  const outstandingAmount = Math.max(invoice.totalAmount - invoice.paidAmount, 0);
+
+  const onUpdateStatus = async (status: InvoiceStatus, paymentAmount?: number) => {
+    setActionError(undefined);
+
+    try {
+      await updateStatusMutation.mutateAsync({ status, paymentAmount });
+      if (status === 'Paid') {
+        setPaymentAmountInput('');
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to update invoice status.');
+    }
+  };
 
   return (
     <ScrollView
@@ -63,18 +86,20 @@ export function InvoiceDetailScreen({ route }: Props) {
           <StatusBadge status={invoice.status} />
         </View>
 
-        <Text style={[styles.amount, { color: theme.colors.primary }]}>{formatCurrency(invoice.amount)}</Text>
+        <Text style={[styles.amount, { color: theme.colors.primary }]}>{formatCurrency(invoice.totalAmount)}</Text>
+        <Text style={[styles.meta, { color: theme.colors.muted }]}>Issued {invoice.issueDate}</Text>
         <Text style={[styles.meta, { color: theme.colors.muted }]}>Due {invoice.dueDate}</Text>
 
         <View style={styles.metaSection}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Buyer Information</Text>
-          <Text style={[styles.meta, { color: theme.colors.text }]}>{invoice.buyerCompany}</Text>
-          <Text style={[styles.meta, { color: theme.colors.muted }]}>{invoice.buyerEmail}</Text>
+          <Text style={[styles.meta, { color: theme.colors.text }]}>{invoice.buyerName}</Text>
+          {invoice.poNumber ? <Text style={[styles.meta, { color: theme.colors.muted }]}>PO {invoice.poNumber}</Text> : null}
         </View>
 
         <View style={styles.metaSection}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Financing Status</Text>
-          <Text style={[styles.financingText, { color: theme.colors.info }]}>{invoice.financingStatus}</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Payment Summary</Text>
+          <Text style={[styles.meta, { color: theme.colors.text }]}>Paid: {formatCurrency(invoice.paidAmount)}</Text>
+          <Text style={[styles.meta, { color: theme.colors.muted }]}>Outstanding: {formatCurrency(outstandingAmount)}</Text>
         </View>
       </View>
 
@@ -87,14 +112,15 @@ export function InvoiceDetailScreen({ route }: Props) {
           },
         ]}
       >
-        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Line Items</Text>
+        <View style={[styles.tableHeader, { borderBottomColor: theme.colors.border }]}> 
+          <Text style={[styles.tableHeaderText, styles.flexName, { color: theme.colors.muted }]}>Item</Text>
+          <Text style={[styles.tableHeaderText, styles.flexMeta, { color: theme.colors.muted }]}>Qty</Text>
+          <Text style={[styles.tableHeaderText, styles.flexMeta, { color: theme.colors.muted }]}>Price</Text>
+          <Text style={[styles.tableHeaderText, styles.flexTotal, { color: theme.colors.muted }]}>Total</Text>
+        </View>
+
         {invoice.lineItems.map((item) => (
-          <View key={item.id} style={styles.rowBetween}>
-            <Text style={[styles.meta, { color: theme.colors.text }]}>{item.title}</Text>
-            <Text style={[styles.meta, { color: theme.colors.muted }]}>
-              {item.quantity} × {formatCurrency(item.unitPrice)}
-            </Text>
-          </View>
+          <InvoiceItemRow key={item.id} item={item} />
         ))}
       </View>
 
@@ -108,23 +134,71 @@ export function InvoiceDetailScreen({ route }: Props) {
         ]}
       >
         <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Payment Timeline</Text>
-        {timeline.map((event) => (
-          <View key={event.title} style={styles.timelineRow}>
-            <View
-              style={[
-                styles.timelineDot,
-                { backgroundColor: event.done ? theme.colors.primary : theme.colors.border },
-              ]}
-            />
-            <View style={styles.timelineTextWrap}>
-              <Text style={[styles.meta, { color: theme.colors.text }]}>{event.title}</Text>
-              <Text style={[styles.timelineDate, { color: theme.colors.muted }]}>{event.date}</Text>
-            </View>
-          </View>
+        {WORKFLOW.map((status, index) => (
+          <TimelineStep
+            key={status}
+            label={status}
+            done={invoice.timeline.some((entry) => entry.status === status && entry.completed)}
+            timestamp={timelineMap.get(status)}
+            last={index === WORKFLOW.length - 1}
+          />
         ))}
+        {invoice.status === 'Overdue' ? <TimelineStep label="Overdue" done timestamp={invoice.updatedAt} last /> : null}
+      </View>
+
+      <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}> 
+        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Record Payment</Text>
+        <TextInput
+          value={paymentAmountInput}
+          onChangeText={setPaymentAmountInput}
+          keyboardType="decimal-pad"
+          placeholder="Payment amount"
+          placeholderTextColor={theme.colors.muted}
+          style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text }]}
+        />
+        <Pressable
+          onPress={() => {
+            const parsedAmount = Number(paymentAmountInput);
+            if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+              setActionError('Enter a valid payment amount greater than zero.');
+              return;
+            }
+            void onUpdateStatus('Paid', parsedAmount);
+          }}
+          disabled={updateStatusMutation.isPending}
+          style={({ pressed }) => [
+            styles.secondaryAction,
+            {
+              borderColor: theme.colors.success,
+              backgroundColor: pressed ? `${theme.colors.success}1A` : 'transparent',
+              opacity: updateStatusMutation.isPending ? 0.6 : 1,
+            },
+          ]}
+        >
+          <Text style={[styles.secondaryActionText, { color: theme.colors.success }]}>Record Payment</Text>
+        </Pressable>
       </View>
 
       <View style={styles.actionGroup}>
+        {invoice.status === 'Draft' ? (
+          <Pressable
+            onPress={() => {
+              void onUpdateStatus('Sent');
+            }}
+            disabled={updateStatusMutation.isPending}
+            style={({ pressed }) => [
+              styles.secondaryAction,
+              {
+                borderColor: theme.colors.info,
+                backgroundColor: pressed ? `${theme.colors.info}1A` : 'transparent',
+                opacity: updateStatusMutation.isPending ? 0.6 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.secondaryActionText, { color: theme.colors.info }]}>Send Invoice</Text>
+          </Pressable>
+        ) : null}
+
         <Pressable
           onPress={() =>
             mainTabNavigation.navigate('Financing', {
@@ -143,31 +217,26 @@ export function InvoiceDetailScreen({ route }: Props) {
           <Text style={[styles.primaryActionText, { color: theme.colors.onPrimary }]}>Request Financing</Text>
         </Pressable>
 
-        <Pressable
-          onPress={() => markAsPaid(invoice.id)}
-          style={({ pressed }) => [
-            styles.secondaryAction,
-            {
-              borderColor: theme.colors.success,
-              backgroundColor: pressed ? `${theme.colors.success}1A` : 'transparent',
-            },
-          ]}
-        >
-          <Text style={[styles.secondaryActionText, { color: theme.colors.success }]}>Mark as Paid</Text>
-        </Pressable>
+        {invoice.status !== 'Paid' ? (
+          <Pressable
+            onPress={() => {
+              void onUpdateStatus('Paid', outstandingAmount > 0 ? outstandingAmount : undefined);
+            }}
+            disabled={updateStatusMutation.isPending}
+            style={({ pressed }) => [
+              styles.secondaryAction,
+              {
+                borderColor: theme.colors.success,
+                backgroundColor: pressed ? `${theme.colors.success}1A` : 'transparent',
+                opacity: updateStatusMutation.isPending ? 0.6 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.secondaryActionText, { color: theme.colors.success }]}>Mark as Paid</Text>
+          </Pressable>
+        ) : null}
 
-        <Pressable
-          onPress={() => Alert.alert('Download Invoice', 'Invoice PDF generation can be connected to backend API.')}
-          style={({ pressed }) => [
-            styles.secondaryAction,
-            {
-              borderColor: theme.colors.border,
-              backgroundColor: pressed ? `${theme.colors.primary}12` : 'transparent',
-            },
-          ]}
-        >
-          <Text style={[styles.secondaryActionText, { color: theme.colors.text }]}>Download Invoice</Text>
-        </Pressable>
+        {actionError ? <Text style={[styles.errorText, { color: theme.colors.danger }]}>{actionError}</Text> : null}
       </View>
     </ScrollView>
   );
@@ -223,27 +292,34 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 4,
   },
-  financingText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  timelineRow: {
+  tableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    paddingBottom: 6,
   },
-  timelineDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
+  tableHeaderText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
-  timelineTextWrap: {
+  flexName: {
+    flex: 1.8,
+  },
+  flexMeta: {
+    flex: 0.8,
+    textAlign: 'right',
+  },
+  flexTotal: {
     flex: 1,
-    paddingVertical: 4,
+    textAlign: 'right',
   },
-  timelineDate: {
-    fontSize: 12,
-    marginTop: 2,
+  input: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    fontSize: 14,
   },
   actionGroup: {
     gap: 10,
@@ -269,5 +345,10 @@ const styles = StyleSheet.create({
   secondaryActionText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  errorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginHorizontal: 4,
   },
 });

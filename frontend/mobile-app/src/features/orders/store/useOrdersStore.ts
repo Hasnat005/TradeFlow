@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { useInvoicesStore } from '../../invoices/store/useInvoicesStore';
+import { createInvoiceFromOrder } from '../../../services/invoicesApi';
 import { initialPurchaseOrders } from '../data';
 import { PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus } from '../types';
 import { calculateOrderTotal } from '../utils';
@@ -19,7 +19,7 @@ type OrdersState = {
   updateOrder: (orderId: string, patch: Partial<Pick<PurchaseOrder, 'supplierName' | 'expectedDeliveryDate' | 'notes' | 'items'>>) => void;
   updateStatus: (orderId: string, status: PurchaseOrderStatus) => void;
   cancelOrder: (orderId: string) => void;
-  convertToInvoice: (orderId: string) => string;
+  convertToInvoice: (orderId: string) => Promise<string>;
 };
 
 function nextPoNumber(orders: PurchaseOrder[]) {
@@ -121,7 +121,7 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
       ),
     }));
   },
-  convertToInvoice: (orderId) => {
+  convertToInvoice: async (orderId) => {
     const order = get().orders.find((entry) => entry.id === orderId);
 
     if (!order) {
@@ -132,18 +132,12 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
       return order.linkedInvoiceId;
     }
 
-    const invoiceId = useInvoicesStore.getState().createInvoiceFromPurchaseOrder({
-      purchaseOrderId: order.id,
-      buyerName: order.supplierName,
-      dueDate: order.expectedDeliveryDate,
-      description: `Invoice generated from ${order.poNumber}`,
-      lineItems: order.items.map((item) => ({
-        id: item.id,
-        title: item.itemName,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-      })),
-    });
+    const response = await createInvoiceFromOrder(order.id);
+    const invoiceId = response?.data?.id as string;
+
+    if (!invoiceId) {
+      throw new Error('Unable to convert order to invoice');
+    }
 
     set((state) => ({
       orders: state.orders.map((entry) =>

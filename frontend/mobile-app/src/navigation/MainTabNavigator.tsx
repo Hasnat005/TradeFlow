@@ -7,7 +7,7 @@ import { InvoicesStackNavigator } from './InvoicesStackNavigator';
 import { FinancingStackNavigator } from './FinancingStackNavigator';
 import { OrdersStackNavigator } from './OrdersStackNavigator';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { DashboardScreen } from '../screens/DashboardScreen';
+import { DashboardOverviewScreen } from '../screens/DashboardOverviewScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { MainTabParamList } from './types';
 
@@ -79,7 +79,7 @@ export function MainTabNavigator() {
         },
       })}
     >
-      <Tab.Screen name="Dashboard" component={DashboardScreen} />
+      <Tab.Screen name="Dashboard" component={DashboardOverviewScreen} />
       <Tab.Screen name="Invoices" component={InvoicesStackNavigator} />
       <Tab.Screen name="Financing" component={FinancingStackNavigator} />
       <Tab.Screen name="Orders" component={OrdersStackNavigator} />

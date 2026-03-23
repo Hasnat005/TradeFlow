@@ -1,6 +1,8 @@
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes, timingSafeEqual } from 'crypto';
+import bcrypt from 'bcrypt';
 
 import { env } from '../config/env';
+import { isSupabaseConfigured, supabaseAdmin } from '../config/supabase';
 import { AppError } from '../utils/app-error';
 import { ProfileRepository } from '../repositories/profile.repository';
 
@@ -21,6 +23,13 @@ type UpdateProfileInput = Partial<{
 type AddBankInput = {
   bankName: string;
   accountNumber: string;
+};
+
+type AddDocumentInput = {
+  documentType: string;
+  fileName: string;
+  fileBase64: string;
+  contentType: string;
 };
 
 function deriveEncryptionKey() {
@@ -62,12 +71,6 @@ function decryptAccountNumber(cipherText: string) {
   return decrypted;
 }
 
-function hashPassword(password: string) {
-  const salt = randomBytes(16).toString('hex');
-  const hash = pbkdf2Sync(password, salt, 150000, 32, 'sha256').toString('hex');
-  return `${salt}:${hash}`;
-}
-
 function verifyPassword(password: string, storedHash: string) {
   if (!storedHash || !storedHash.includes(':')) {
     return false;
@@ -80,6 +83,15 @@ function verifyPassword(password: string, storedHash: string) {
   const computed = Buffer.from(computedHash, 'hex');
 
   return existing.length === computed.length && timingSafeEqual(existing, computed);
+}
+
+function sanitizeFileName(fileName: string) {
+  return fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+function parseBase64Payload(value: string) {
+  const payload = value.includes(',') ? value.split(',').pop() ?? '' : value;
+  return Buffer.from(payload, 'base64');
 }
 
 export class ProfileService {
@@ -95,6 +107,8 @@ export class ProfileService {
     }
 
     const banks = await this.profileRepository.getBankAccounts(auth.companyId);
+    const documents = await this.profileRepository.getDocuments(auth.companyId);
+    const accountSummary = await this.profileRepository.getAccountSummary(auth.companyId);
 
     return {
       user: {
@@ -113,6 +127,7 @@ export class ProfileService {
         companyAccountId: profile.company.company_account_id,
         verified: profile.company.verified,
       },
+      accountSummary,
       bankAccounts: banks.map((bank) => {
         const decrypted = decryptAccountNumber(bank.account_number);
         return {
@@ -121,6 +136,12 @@ export class ProfileService {
           maskedAccountNumber: maskAccountNumber(decrypted),
         };
       }),
+      documents: documents.map((doc) => ({
+        id: doc.id,
+        documentType: doc.document_type,
+        status: doc.status,
+        fileUrl: doc.file_url,
+      })),
     };
   }
 
@@ -155,11 +176,21 @@ export class ProfileService {
       throw new AppError(404, 'User not found', 'USER_NOT_FOUND');
     }
 
-    if (user.password_hash && !verifyPassword(currentPassword, user.password_hash)) {
-      throw new AppError(400, 'Current password is incorrect', 'INVALID_CURRENT_PASSWORD');
+    if (user.password_hash) {
+      let currentMatches = false;
+
+      if (user.password_hash.includes(':')) {
+        currentMatches = verifyPassword(currentPassword, user.password_hash);
+      } else {
+        currentMatches = await bcrypt.compare(currentPassword, user.password_hash);
+      }
+
+      if (!currentMatches) {
+        throw new AppError(400, 'Current password is incorrect', 'INVALID_CURRENT_PASSWORD');
+      }
     }
 
-    const passwordHash = hashPassword(newPassword);
+    const passwordHash = await bcrypt.hash(newPassword, 12);
     await this.profileRepository.updateUserPasswordHash(auth.userId, passwordHash);
 
     return {
@@ -191,5 +222,51 @@ export class ProfileService {
       status: doc.status,
       fileUrl: doc.file_url,
     }));
+  }
+
+  async uploadDocument(auth: AuthContext, input: AddDocumentInput) {
+    await this.profileRepository.ensureProfileContext(auth);
+
+    const fileBuffer = parseBase64Payload(input.fileBase64);
+
+    if (fileBuffer.length === 0) {
+      throw new AppError(400, 'Invalid document payload', 'INVALID_DOCUMENT_PAYLOAD');
+    }
+
+    let fileUrl = `local://documents/${sanitizeFileName(input.fileName)}`;
+
+    if (isSupabaseConfigured && supabaseAdmin) {
+      const storagePath = `${auth.companyId}/${Date.now()}-${sanitizeFileName(input.fileName)}`;
+
+      const uploadResult = await supabaseAdmin.storage
+        .from(env.SUPABASE_STORAGE_BUCKET)
+        .upload(storagePath, fileBuffer, {
+          contentType: input.contentType,
+          upsert: false,
+        });
+
+      if (uploadResult.error) {
+        throw new AppError(500, 'Document upload failed', 'DOCUMENT_UPLOAD_FAILED', uploadResult.error.message);
+      }
+
+      const publicUrlResult = supabaseAdmin.storage
+        .from(env.SUPABASE_STORAGE_BUCKET)
+        .getPublicUrl(storagePath);
+
+      fileUrl = publicUrlResult.data.publicUrl;
+    }
+
+    const created = await this.profileRepository.addDocument(auth.companyId, {
+      documentType: input.documentType,
+      fileUrl,
+      status: 'Pending',
+    });
+
+    return {
+      id: created.id,
+      documentType: created.document_type,
+      status: created.status,
+      fileUrl: created.file_url,
+    };
   }
 }

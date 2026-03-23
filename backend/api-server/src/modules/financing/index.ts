@@ -1,6 +1,7 @@
 export {
   createFinancingRequestBodySchema,
   financingIdParamsSchema,
+  financingInvoicesQuerySchema,
   financingListQuerySchema,
   financingStatusSchema,
   updateFinancingStatusBodySchema,

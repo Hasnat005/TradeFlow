@@ -51,3 +51,9 @@ ordersRouter.patch(
   validateRequest({ params: orderIdParamsSchema, body: updateOrderStatusBodySchema }),
   asyncHandler((req, res) => ordersController.updateOrderStatus(req, res)),
 );
+
+ordersRouter.post(
+  '/:id/convert-to-invoice',
+  validateRequest({ params: orderIdParamsSchema }),
+  asyncHandler((req, res) => ordersController.convertOrderToInvoice(req, res)),
+);

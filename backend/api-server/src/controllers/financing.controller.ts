@@ -10,13 +10,19 @@ export class FinancingController {
   async createRequest(req: Request, res: Response) {
     const auth = getAuthContext(req);
     const body = req.body as {
-      invoiceId: string;
-      requestedAmount: number;
-      invoiceAmount: number;
-      buyerName?: string;
+      invoiceId?: string;
+      invoice_id?: string;
+      requestedAmount?: number;
+      requested_amount?: number;
     };
 
-    const created = await this.financingService.createRequest(body, auth);
+    const created = await this.financingService.createRequest(
+      {
+        invoiceId: body.invoiceId ?? body.invoice_id ?? '',
+        requestedAmount: body.requestedAmount ?? body.requested_amount ?? 0,
+      },
+      auth,
+    );
 
     res.status(201).json({
       success: true,
@@ -26,9 +32,24 @@ export class FinancingController {
 
   async listRequests(req: Request, res: Response) {
     const auth = getAuthContext(req);
-    const query = req.query as { status?: FinancingStatus };
+    const query = req.query as { status?: FinancingStatus; search?: string };
 
-    const data = await this.financingService.listRequests(auth, query.status);
+    const data = await this.financingService.listRequests(auth, {
+      status: query.status,
+      search: query.search,
+    });
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  }
+
+  async listInvoices(req: Request, res: Response) {
+    const auth = getAuthContext(req);
+    const query = req.query as { search?: string };
+
+    const data = await this.financingService.listInvoices(auth, query.search);
 
     res.status(200).json({
       success: true,

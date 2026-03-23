@@ -2,10 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { useAppTheme } from '../../hooks/useAppTheme';
+import { formatCurrency } from '../../features/invoices/utils';
 
 type MetricCardProps = {
   title: string;
-  amount: string;
+  amount: number;
   insight: string;
   additional?: string;
   trend?: 'up' | 'down';
@@ -34,7 +35,7 @@ export function MetricCard({ title, amount, insight, additional, trend, highligh
         {title}
       </Text>
       <Text style={[styles.amount, { color: highlighted ? theme.colors.onPrimary : theme.colors.text }]}>
-        {amount}
+        {formatCurrency(amount)}
       </Text>
       {additional ? (
         <Text style={[styles.additional, { color: highlighted ? 'rgba(255,255,255,0.92)' : theme.colors.muted }]}>
@@ -59,24 +60,25 @@ export function MetricCard({ title, amount, insight, additional, trend, highligh
 
 const styles = StyleSheet.create({
   card: {
-    width: 232,
-    minHeight: 144,
+    width: 210,
+    minHeight: 116,
     borderWidth: 1,
-    padding: 16,
+    borderRadius: 14,
+    padding: 14,
     justifyContent: 'space-between',
-    gap: 2,
+    gap: 4,
   },
   title: {
     fontSize: 12,
     fontWeight: '600',
   },
   amount: {
-    fontSize: 23,
-    fontWeight: '600',
-    marginVertical: 4,
+    fontSize: 19,
+    fontWeight: '800',
+    marginVertical: 2,
   },
   additional: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
   },
   footerRow: {
@@ -85,7 +87,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   insight: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
   },
 });

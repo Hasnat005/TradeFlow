@@ -1,1 +1,1 @@
-export { addBankBodySchema, changePasswordBodySchema, updateProfileBodySchema } from './profile.validation';
+export { addBankBodySchema, addDocumentBodySchema, changePasswordBodySchema, updateProfileBodySchema } from './profile.validation';

@@ -4,12 +4,13 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { EmptyState } from '../components/invoices/EmptyState';
 import { FilterBar } from '../components/invoices/FilterBar';
 import { InvoiceCard } from '../components/invoices/InvoiceCard';
+import { LoadingSkeleton } from '../components/invoices/LoadingSkeleton';
+import { useInvoicesListQuery } from '../features/invoices/hooks/useInvoices';
 import { InvoiceDateRange, InvoiceStatusFilter } from '../features/invoices/types';
-import { normalizeDate } from '../features/invoices/utils';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { useInvoicesStore } from '../features/invoices/store/useInvoicesStore';
 import { InvoicesStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<InvoicesStackParamList, 'InvoiceList'>;
@@ -17,31 +18,26 @@ type Props = NativeStackScreenProps<InvoicesStackParamList, 'InvoiceList'>;
 export function InvoicesScreen({ navigation }: Props) {
   const theme = useAppTheme();
   const tabBarHeight = useBottomTabBarHeight();
-  const invoices = useInvoicesStore((state) => state.invoices);
 
   const [statusFilter, setStatusFilter] = useState<InvoiceStatusFilter>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [dateRange, setDateRange] = useState<InvoiceDateRange>({});
 
-  const filteredInvoices = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const from = dateRange.from ? normalizeDate(dateRange.from) : undefined;
-    const to = dateRange.to ? normalizeDate(dateRange.to) : undefined;
+  const query = useMemo(() => {
+    const trimmedSearch = searchQuery.trim();
 
-    return invoices.filter((invoice) => {
-      const statusMatch = statusFilter === 'All' ? true : invoice.status === statusFilter;
-      const searchMatch =
-        query.length === 0 ||
-        invoice.id.toLowerCase().includes(query) ||
-        invoice.buyerName.toLowerCase().includes(query);
+    return {
+      status: statusFilter === 'All' ? undefined : statusFilter,
+      search: trimmedSearch.length > 0 ? trimmedSearch : undefined,
+      from: dateRange.from,
+      to: dateRange.to,
+    };
+  }, [dateRange.from, dateRange.to, searchQuery, statusFilter]);
 
-      const invoiceDate = normalizeDate(invoice.dueDate);
-      const fromMatch = from && invoiceDate ? invoiceDate >= from : true;
-      const toMatch = to && invoiceDate ? invoiceDate <= to : true;
+  const { data, isLoading, isError, refetch } = useInvoicesListQuery(query);
 
-      return statusMatch && searchMatch && fromMatch && toMatch;
-    });
-  }, [dateRange.from, dateRange.to, invoices, searchQuery, statusFilter]);
+  const invoices = data?.invoices ?? [];
+  const alerts = data?.alerts ?? [];
 
   const onOpenInvoice = (invoiceId: string) => {
     navigation.navigate('InvoiceDetail', { invoiceId });
@@ -54,13 +50,11 @@ export function InvoicesScreen({ navigation }: Props) {
   const listBottomPadding = tabBarHeight + 88;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <FlatList
-        data={filteredInvoices}
+        data={invoices}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <InvoiceCard invoice={item} onPress={() => onOpenInvoice(item.id)} />
-        )}
+        renderItem={({ item }) => <InvoiceCard invoice={item} onPress={() => onOpenInvoice(item.id)} />}
         ListHeaderComponent={
           <View style={styles.headerWrap}>
             <Text style={[styles.pageTitle, { color: theme.colors.text }]}>Invoice Management</Text>
@@ -73,13 +67,49 @@ export function InvoicesScreen({ navigation }: Props) {
               dateRange={dateRange}
               onDateRangeChange={setDateRange}
             />
+
+            {alerts.map((alert) => {
+              const borderColor =
+                alert.tone === 'danger'
+                  ? theme.colors.danger
+                  : alert.tone === 'warning'
+                    ? theme.colors.warning
+                    : alert.tone === 'success'
+                      ? theme.colors.success
+                      : theme.colors.info;
+
+              return (
+                <View
+                  key={alert.id}
+                  style={[styles.alertCard, { borderColor, backgroundColor: theme.colors.surface }]}
+                >
+                  <Text style={[styles.alertTitle, { color: theme.colors.text }]}>{alert.title}</Text>
+                  <Text style={[styles.alertDescription, { color: theme.colors.muted }]}>{alert.description}</Text>
+                </View>
+              );
+            })}
           </View>
         }
         ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No invoices found</Text>
-            <Text style={[styles.emptySubtitle, { color: theme.colors.muted }]}>Adjust filters or create a new invoice.</Text>
-          </View>
+          isLoading ? (
+            <LoadingSkeleton />
+          ) : isError ? (
+            <EmptyState
+              title="Could not load invoices"
+              message="Please check your connection and try again."
+              actionLabel="Retry"
+              onAction={() => {
+                void refetch();
+              }}
+            />
+          ) : (
+            <EmptyState
+              title="No invoices found"
+              message="Adjust filters or create a new invoice."
+              actionLabel="Create Invoice"
+              onAction={onCreateInvoice}
+            />
+          )
         }
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         contentContainerStyle={[styles.listContent, { paddingBottom: listBottomPadding }]}
@@ -95,6 +125,7 @@ export function InvoicesScreen({ navigation }: Props) {
             borderRadius: theme.radius.md,
             bottom: tabBarHeight - 100,
             opacity: pressed ? 0.92 : 1,
+            ...theme.shadow,
           },
         ]}
         accessibilityRole="button"
@@ -127,17 +158,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
-  emptyWrap: {
-    marginTop: 36,
-    alignItems: 'center',
+  alertCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
     gap: 4,
   },
-  emptyTitle: {
-    fontSize: 16,
+  alertTitle: {
+    fontSize: 13,
     fontWeight: '700',
   },
-  emptySubtitle: {
-    fontSize: 13,
+  alertDescription: {
+    fontSize: 12,
     fontWeight: '500',
   },
   separator: {
@@ -151,11 +183,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#0B6BFF',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.22,
-    shadowRadius: 12,
-    elevation: 5,
   },
   fabText: {
     marginLeft: 8,

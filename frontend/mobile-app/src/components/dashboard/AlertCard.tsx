@@ -8,7 +8,7 @@ type AlertTone = 'urgent' | 'warning' | 'good';
 type AlertCardProps = {
   title: string;
   description: string;
-  actionLabel: string;
+  actionLabel?: string;
   tone: AlertTone;
   onPress?: () => void;
 };
@@ -31,13 +31,15 @@ export function AlertCard({ title, description, actionLabel, tone, onPress }: Al
         </View>
       </View>
 
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [styles.cta, { borderColor: `${toneColor}70`, opacity: pressed ? 0.85 : 1 }]}
-        accessibilityRole="button"
-      >
-        <Text style={[styles.ctaText, { color: toneColor }]}>{actionLabel}</Text>
-      </Pressable>
+      {actionLabel ? (
+        <Pressable
+          onPress={onPress}
+          style={({ pressed }) => [styles.cta, { borderColor: `${toneColor}70`, opacity: pressed ? 0.85 : 1 }]}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.ctaText, { color: toneColor }]}>{actionLabel}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -45,14 +47,14 @@ export function AlertCard({ title, description, actionLabel, tone, onPress }: Al
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    minHeight: 76,
+    minHeight: 68,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
   },
   leftWrap: {
     flex: 1,
@@ -65,23 +67,23 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   title: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
   description: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
-    lineHeight: 16,
+    lineHeight: 15,
   },
   cta: {
-    minHeight: 44,
+    minHeight: 34,
     borderWidth: 1,
     borderRadius: 10,
     justifyContent: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
   },
   ctaText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
 });

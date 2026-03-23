@@ -1,11 +1,14 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
+import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 
+import { EmptyState } from '../components/financing/EmptyState';
+import { LoadingSkeleton } from '../components/financing/LoadingSkeleton';
 import { ProgressBar } from '../components/financing/ProgressBar';
 import { StatusBadge } from '../components/financing/StatusBadge';
 import { TimelineStep } from '../components/financing/TimelineStep';
-import { useFinancingStore } from '../features/financing/store/useFinancingStore';
+import { useFinancingDetailQuery, useUpdateFinancingStatusMutation } from '../features/financing/hooks/useFinancing';
 import { formatCurrency, getRepaymentProgress } from '../features/financing/utils';
 import { useAppTheme } from '../hooks/useAppTheme';
 import { FinancingStackParamList, MainTabParamList } from '../navigation/types';
@@ -17,29 +20,47 @@ export function FinancingDetailScreen({ route }: Props) {
   const theme = useAppTheme();
   const mainTabNavigation = useNavigation<NavigationProp<MainTabParamList>>();
   const { requestId } = route.params;
+  const [actionError, setActionError] = useState<string | undefined>();
 
-  const request = useFinancingStore((state) => state.requests.find((item) => item.id === requestId));
-  const acceptOffer = useFinancingStore((state) => state.acceptOffer);
-  const cancelRequest = useFinancingStore((state) => state.cancelRequest);
-  const markAsRepaid = useFinancingStore((state) => state.markAsRepaid);
+  const { data: request, isLoading, isError, refetch } = useFinancingDetailQuery(requestId);
+  const updateStatusMutation = useUpdateFinancingStatusMutation(requestId);
 
-  if (!request) {
+  if (isLoading) {
     return (
       <View style={[styles.fallback, { backgroundColor: theme.colors.background }]}> 
-        <Text style={[styles.fallbackText, { color: theme.colors.text }]}>Financing request not found</Text>
+        <LoadingSkeleton />
+      </View>
+    );
+  }
+
+  if (isError || !request) {
+    return (
+      <View style={[styles.fallback, { backgroundColor: theme.colors.background }]}> 
+        <EmptyState
+          title="Financing request unavailable"
+          message="Please retry loading this request."
+          actionLabel="Retry"
+          onAction={() => {
+            void refetch();
+          }}
+        />
       </View>
     );
   }
 
   const progressPercent = getRepaymentProgress(request);
-  const remaining = Math.max(0, request.repaymentAmount - request.amountPaid);
+  const remaining = Math.max(0, request.repayment.remaining);
 
-  const timeline = [
-    { label: 'Requested', done: true },
-    { label: 'Approved', done: ['Approved', 'Disbursed', 'Repaid'].includes(request.status) },
-    { label: 'Disbursed', done: ['Disbursed', 'Repaid'].includes(request.status) },
-    { label: 'Repaid', done: request.status === 'Repaid' },
-  ];
+  const onUpdateStatus = async (status: typeof request.status) => {
+    setActionError(undefined);
+    try {
+      await updateStatusMutation.mutateAsync(status);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to update financing status.');
+    }
+  };
+
+  const timeline = request.timeline;
 
   return (
     <ScrollView
@@ -55,6 +76,8 @@ export function FinancingDetailScreen({ route }: Props) {
 
         <Text style={[styles.meta, { color: theme.colors.text }]}>Invoice Reference: {request.invoiceId}</Text>
         <Text style={[styles.meta, { color: theme.colors.text }]}>Buyer: {request.buyerName}</Text>
+        <Text style={[styles.meta, { color: theme.colors.muted }]}>Disbursement: {request.disbursementDate ?? '--'}</Text>
+        <Text style={[styles.meta, { color: theme.colors.muted }]}>Repayment due: {request.repaymentDueDate ?? '--'}</Text>
 
         <View style={styles.metricRow}>
           <Metric label="Requested" value={formatCurrency(request.requestedAmount)} />
@@ -71,11 +94,11 @@ export function FinancingDetailScreen({ route }: Props) {
         <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Repayment Tracking</Text>
         <View style={styles.rowBetween}>
           <Text style={[styles.meta, { color: theme.colors.muted }]}>Total</Text>
-          <Text style={[styles.metaValue, { color: theme.colors.text }]}>{formatCurrency(request.repaymentAmount)}</Text>
+          <Text style={[styles.metaValue, { color: theme.colors.text }]}>{formatCurrency(request.repayment.total)}</Text>
         </View>
         <View style={styles.rowBetween}>
           <Text style={[styles.meta, { color: theme.colors.muted }]}>Paid</Text>
-          <Text style={[styles.metaValue, { color: theme.colors.success }]}>{formatCurrency(request.amountPaid)}</Text>
+          <Text style={[styles.metaValue, { color: theme.colors.success }]}>{formatCurrency(request.repayment.paid)}</Text>
         </View>
         <View style={styles.rowBetween}>
           <Text style={[styles.meta, { color: theme.colors.muted }]}>Remaining</Text>
@@ -88,23 +111,55 @@ export function FinancingDetailScreen({ route }: Props) {
       <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}> 
         <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Timeline</Text>
         {timeline.map((step, index) => (
-          <TimelineStep key={step.label} label={step.label} done={step.done} last={index === timeline.length - 1} />
+          <TimelineStep
+            key={step.status}
+            label={step.status}
+            done={step.completed}
+            timestamp={step.timestamp?.slice(0, 10)}
+            last={index === timeline.length - 1}
+          />
         ))}
       </View>
 
       <View style={styles.actionsWrap}>
-        {request.status === 'Approved' ? (
+        {request.status === 'Pending' ? (
           <Pressable
-            onPress={() => acceptOffer(request.id)}
+            onPress={() => {
+              void onUpdateStatus('Under Review');
+            }}
             style={({ pressed }) => [styles.primaryAction, { backgroundColor: theme.colors.primary, opacity: pressed ? 0.92 : 1 }]}
           >
-            <Text style={[styles.primaryActionText, { color: theme.colors.onPrimary }]}>Accept Offer</Text>
+            <Text style={[styles.primaryActionText, { color: theme.colors.onPrimary }]}>Start Review</Text>
           </Pressable>
         ) : null}
 
-        {request.status === 'Pending' ? (
+        {request.status === 'Under Review' ? (
           <Pressable
-            onPress={() => cancelRequest(request.id)}
+            onPress={() => {
+              void onUpdateStatus('Approved');
+            }}
+            style={({ pressed }) => [styles.primaryAction, { backgroundColor: theme.colors.primary, opacity: pressed ? 0.92 : 1 }]}
+          >
+            <Text style={[styles.primaryActionText, { color: theme.colors.onPrimary }]}>Approve Request</Text>
+          </Pressable>
+        ) : null}
+
+        {request.status === 'Approved' ? (
+          <Pressable
+            onPress={() => {
+              void onUpdateStatus('Disbursed');
+            }}
+            style={({ pressed }) => [styles.primaryAction, { backgroundColor: theme.colors.primary, opacity: pressed ? 0.92 : 1 }]}
+          >
+            <Text style={[styles.primaryActionText, { color: theme.colors.onPrimary }]}>Mark as Disbursed</Text>
+          </Pressable>
+        ) : null}
+
+        {(request.status === 'Pending' || request.status === 'Under Review' || request.status === 'Approved') ? (
+          <Pressable
+            onPress={() => {
+              void onUpdateStatus('Rejected');
+            }}
             style={({ pressed }) => [
               styles.secondaryAction,
               {
@@ -119,7 +174,9 @@ export function FinancingDetailScreen({ route }: Props) {
 
         {request.status === 'Disbursed' ? (
           <Pressable
-            onPress={() => markAsRepaid(request.id)}
+            onPress={() => {
+              void onUpdateStatus('Repaid');
+            }}
             style={({ pressed }) => [
               styles.secondaryAction,
               {
@@ -149,6 +206,8 @@ export function FinancingDetailScreen({ route }: Props) {
         >
           <Text style={[styles.secondaryActionText, { color: theme.colors.text }]}>View Linked Invoice</Text>
         </Pressable>
+
+        {actionError ? <Text style={[styles.errorText, { color: theme.colors.danger }]}>{actionError}</Text> : null}
       </View>
     </ScrollView>
   );
@@ -260,5 +319,9 @@ const styles = StyleSheet.create({
   secondaryActionText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  errorText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

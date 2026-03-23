@@ -44,6 +44,7 @@ const envSchema = z.object({
   DATA_ENCRYPTION_KEY: z.string().default('dev-change-this-encryption-key'),
   SUPABASE_URL: optionalString,
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
+  SUPABASE_STORAGE_BUCKET: z.string().default('kyc-documents'),
   DATABASE_URL: optionalString,
   PG_SSL_REJECT_UNAUTHORIZED: optionalBoolean,
   PG_SSL_CA: optionalString,

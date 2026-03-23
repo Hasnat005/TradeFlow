@@ -42,4 +42,17 @@ export class ProfileController {
 
     res.status(200).json({ success: true, data });
   }
+
+  async uploadDocument(req: Request, res: Response) {
+    const auth = getAuthContext(req);
+    const body = req.body as {
+      documentType: string;
+      fileName: string;
+      fileBase64: string;
+      contentType: string;
+    };
+    const data = await this.profileService.uploadDocument(auth, body);
+
+    res.status(201).json({ success: true, data });
+  }
 }

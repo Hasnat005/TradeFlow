@@ -5,10 +5,11 @@ import { useAppTheme } from '../../hooks/useAppTheme';
 type Props = {
   label: string;
   done: boolean;
+  timestamp?: string;
   last?: boolean;
 };
 
-export function TimelineStep({ label, done, last }: Props) {
+export function TimelineStep({ label, done, timestamp, last }: Props) {
   const theme = useAppTheme();
 
   return (
@@ -33,7 +34,10 @@ export function TimelineStep({ label, done, last }: Props) {
           />
         ) : null}
       </View>
-      <Text style={[styles.label, { color: theme.colors.text }]}>{label}</Text>
+      <View style={styles.textWrap}>
+        <Text style={[styles.label, { color: theme.colors.text }]}>{label}</Text>
+        <Text style={[styles.timestamp, { color: theme.colors.muted }]}>{timestamp ?? '--'}</Text>
+      </View>
     </View>
   );
 }
@@ -62,5 +66,12 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  textWrap: {
+    gap: 2,
+  },
+  timestamp: {
+    fontSize: 11,
+    fontWeight: '500',
   },
 });

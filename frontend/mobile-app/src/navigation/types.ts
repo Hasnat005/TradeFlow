@@ -20,7 +20,23 @@ export type FinancingStackParamList = {
 
 export type OrdersStackParamList = {
   OrdersDashboard: undefined;
-  CreatePurchaseOrder: undefined;
+  CreatePurchaseOrder:
+    | {
+        orderId?: string;
+        initialValues?: {
+          supplierName: string;
+          expectedDeliveryDate: string;
+          notes?: string;
+          status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected' | 'Delivered' | 'Completed';
+          items: Array<{
+            id: string;
+            itemName: string;
+            quantity: number;
+            unitPrice: number;
+          }>;
+        };
+      }
+    | undefined;
   OrderDetail: { orderId: string };
 };
 

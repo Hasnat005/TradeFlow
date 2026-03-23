@@ -23,6 +23,7 @@ export type PurchaseOrderRecord = {
   status: OrderStatus;
   expected_delivery_date: string;
   notes: string | null;
+  linked_invoice_id: string | null;
   created_at: string;
   updated_at: string;
   items: OrderItemRecord[];
@@ -58,6 +59,13 @@ type UpdateOrderStatusInput = {
   id: string;
   companyId: string;
   status: OrderStatus;
+};
+
+type ListOrdersFilter = {
+  status?: OrderStatus;
+  search?: string;
+  from?: string;
+  to?: string;
 };
 
 const inMemoryOrders: PurchaseOrderRecord[] = [];
@@ -102,7 +110,7 @@ async function mapOrderWithItems(orderId: string, companyId: string) {
     `
     select id, company_id, po_number, supplier_name, total_amount::float8 as total_amount,
            status, expected_delivery_date::text as expected_delivery_date,
-           notes, created_at::text as created_at, updated_at::text as updated_at
+           notes, linked_invoice_id, created_at::text as created_at, updated_at::text as updated_at
     from purchase_orders
     where id = $1 and company_id = $2
     limit 1
@@ -155,6 +163,7 @@ export class OrdersRepository {
         status: input.status,
         expected_delivery_date: input.expectedDeliveryDate,
         notes: input.notes ?? null,
+        linked_invoice_id: null,
         created_at: now,
         updated_at: now,
         items,
@@ -225,24 +234,56 @@ export class OrdersRepository {
     }
   }
 
-  async findAllByCompany(companyId: string, status?: OrderStatus) {
+  async findAllByCompany(companyId: string, filter: ListOrdersFilter = {}) {
+    const { status, search, from, to } = filter;
+
     if (!pgPool) {
-      return inMemoryOrders.filter((order) => order.company_id === companyId && (!status || order.status === status));
+      const query = search?.trim().toLowerCase();
+
+      return inMemoryOrders.filter((order) => {
+        const statusMatch = !status || order.status === status;
+        const searchMatch =
+          !query || order.po_number.toLowerCase().includes(query) || order.supplier_name.toLowerCase().includes(query);
+        const fromMatch = !from || order.created_at.slice(0, 10) >= from;
+        const toMatch = !to || order.created_at.slice(0, 10) <= to;
+
+        return order.company_id === companyId && statusMatch && searchMatch && fromMatch && toMatch;
+      });
     }
 
-    const ordersResult = await pgPool.query<
-      Omit<PurchaseOrderRecord, 'items'>
-    >(
+    const clauses = ['company_id = $1'];
+    const values: Array<string> = [companyId];
+
+    if (status) {
+      clauses.push(`status = $${values.length + 1}`);
+      values.push(status);
+    }
+
+    if (search?.trim()) {
+      clauses.push(`(po_number ilike $${values.length + 1} or supplier_name ilike $${values.length + 1})`);
+      values.push(`%${search.trim()}%`);
+    }
+
+    if (from) {
+      clauses.push(`created_at::date >= $${values.length + 1}::date`);
+      values.push(from);
+    }
+
+    if (to) {
+      clauses.push(`created_at::date <= $${values.length + 1}::date`);
+      values.push(to);
+    }
+
+    const ordersResult = await pgPool.query<Omit<PurchaseOrderRecord, 'items'>>(
       `
       select id, company_id, po_number, supplier_name, total_amount::float8 as total_amount,
              status, expected_delivery_date::text as expected_delivery_date,
-             notes, created_at::text as created_at, updated_at::text as updated_at
+             notes, linked_invoice_id, created_at::text as created_at, updated_at::text as updated_at
       from purchase_orders
-      where company_id = $1
-      ${status ? 'and status = $2' : ''}
+      where ${clauses.join(' and ')}
       order by created_at desc
       `,
-      status ? [companyId, status] : [companyId],
+      values,
     );
 
     const orders: PurchaseOrderRecord[] = [];
@@ -383,5 +424,30 @@ export class OrdersRepository {
     );
 
     return this.findById(input.id, input.companyId);
+  }
+
+  async linkInvoice(orderId: string, companyId: string, invoiceId: string) {
+    if (!pgPool) {
+      const target = inMemoryOrders.find((order) => order.id === orderId && order.company_id === companyId);
+      if (!target) {
+        return null;
+      }
+
+      target.linked_invoice_id = invoiceId;
+      target.updated_at = new Date().toISOString();
+      return target;
+    }
+
+    await pgPool.query(
+      `
+      update purchase_orders
+      set linked_invoice_id = $3,
+          updated_at = now()
+      where id = $1 and company_id = $2
+      `,
+      [orderId, companyId, invoiceId],
+    );
+
+    return this.findById(orderId, companyId);
   }
 }

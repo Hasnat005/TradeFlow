@@ -9,6 +9,7 @@ import { asyncHandler } from '../utils/async-handler';
 import {
   createFinancingRequestBodySchema,
   financingIdParamsSchema,
+  financingInvoicesQuerySchema,
   financingListQuerySchema,
   updateFinancingStatusBodySchema,
 } from '../modules/financing';
@@ -31,6 +32,12 @@ financingRouter.get(
   '/',
   validateRequest({ query: financingListQuerySchema }),
   asyncHandler((req, res) => financingController.listRequests(req, res)),
+);
+
+financingRouter.get(
+  '/invoices',
+  validateRequest({ query: financingInvoicesQuerySchema }),
+  asyncHandler((req, res) => financingController.listInvoices(req, res)),
 );
 
 financingRouter.get(
