@@ -15,12 +15,12 @@ export function ActionGridItem({ label, iconName, onPress }: Props) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.wrap, { opacity: pressed ? 0.86 : 1 }]}
+      style={({ pressed }) => [styles.wrap, { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] }]}
       accessibilityRole="button"
       accessibilityLabel={label}
     >
-      <View style={[styles.iconCircle, { backgroundColor: `${theme.colors.primary}14` }]}>
-        <Ionicons name={iconName} size={18} color={theme.colors.primary} />
+      <View style={[styles.iconCircle, { backgroundColor: `${theme.colors.primary}16` }]}>
+        <Ionicons name={iconName} size={19} color={theme.colors.primary} />
       </View>
       <Text style={[styles.label, { color: theme.colors.text }]} numberOfLines={2}>
         {label}
@@ -32,21 +32,22 @@ export function ActionGridItem({ label, iconName, onPress }: Props) {
 const styles = StyleSheet.create({
   wrap: {
     width: '23%',
+    minHeight: 86,
     alignItems: 'center',
     gap: 8,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   iconCircle: {
-    width: 48,
-    height: 48,
+    width: 50,
+    height: 50,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   label: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     textAlign: 'center',
-    lineHeight: 14,
+    lineHeight: 16,
   },
 });

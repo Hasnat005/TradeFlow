@@ -18,8 +18,10 @@ export class DashboardController {
 
   async getRecentTransactions(req: Request, res: Response) {
     const auth = getAuthContext(req);
-    const query = req.query as { limit?: number };
-    const data = await this.dashboardService.getRecentTransactions(auth, Number(query.limit ?? 10));
+    const rawLimit = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const parsedLimit = Number(rawLimit ?? 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(50, Math.trunc(parsedLimit))) : 10;
+    const data = await this.dashboardService.getRecentTransactions(auth, limit);
 
     res.status(200).json({
       success: true,

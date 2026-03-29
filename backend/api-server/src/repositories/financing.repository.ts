@@ -70,9 +70,43 @@ const inMemoryStore: FinancingRecord[] = [];
 const inMemoryInvoices: InvoiceRecord[] = [];
 const inMemoryEvents: FinancingStatusEventRecord[] = [];
 
+async function tableExists(tableName: string) {
+  if (!pgPool) {
+    return false;
+  }
+
+  const result = await pgPool.query<{ exists: boolean }>(
+    `
+    select to_regclass($1) is not null as exists
+    `,
+    [tableName],
+  );
+
+  return Boolean(result.rows[0]?.exists);
+}
+
+async function getAvailableColumns(tableName: string, columnNames: string[]) {
+  if (!pgPool || columnNames.length === 0) {
+    return new Set<string>();
+  }
+
+  const result = await pgPool.query<{ column_name: string }>(
+    `
+    select column_name
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = $1
+      and column_name = any($2::text[])
+    `,
+    [tableName, columnNames],
+  );
+
+  return new Set(result.rows.map((row) => row.column_name));
+}
+
 export class FinancingRepository {
   async create(input: CreateFinancingInput) {
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('financing_requests')) || !(await tableExists('financing_status_events'))) {
       const now = new Date().toISOString();
       const created: FinancingRecord = {
         id: randomUUID(),
@@ -148,7 +182,7 @@ export class FinancingRepository {
   async findAllByCompany(companyId: string, filter: ListFilter = {}) {
     const { status, search } = filter;
 
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('financing_requests'))) {
       const query = search?.trim().toLowerCase();
 
       return inMemoryStore.filter(
@@ -186,7 +220,7 @@ export class FinancingRepository {
   }
 
   async listInvoicesByCompany(companyId: string, search?: string) {
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('invoices'))) {
       const query = search?.trim().toLowerCase();
       return inMemoryInvoices.filter(
         (invoice) =>
@@ -225,7 +259,7 @@ export class FinancingRepository {
   }
 
   async findInvoiceById(invoiceId: string, companyId: string) {
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('invoices'))) {
       return inMemoryInvoices.find((invoice) => invoice.id === invoiceId && invoice.company_id === companyId) ?? null;
     }
 
@@ -253,7 +287,7 @@ export class FinancingRepository {
   async hasActiveRequestForInvoice(invoiceId: string, companyId: string) {
     const activeStatuses: FinancingStatus[] = ['Pending', 'Under Review', 'Approved', 'Disbursed'];
 
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('financing_requests'))) {
       return inMemoryStore.some(
         (entry) =>
           entry.invoice_id === invoiceId && entry.company_id === companyId && activeStatuses.includes(entry.status),
@@ -275,7 +309,7 @@ export class FinancingRepository {
   }
 
   async getTimeline(financingRequestId: string) {
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('financing_status_events'))) {
       return inMemoryEvents.filter((event) => event.financing_request_id === financingRequestId);
     }
 
@@ -297,7 +331,12 @@ export class FinancingRepository {
   }
 
   async getCompanyCreditLimit(companyId: string) {
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('companies'))) {
+      return 0;
+    }
+
+    const companyColumns = await getAvailableColumns('companies', ['credit_limit']);
+    if (!companyColumns.has('credit_limit')) {
       return 0;
     }
 
@@ -315,7 +354,7 @@ export class FinancingRepository {
   }
 
   async findById(id: string, companyId: string) {
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('financing_requests'))) {
       return inMemoryStore.find((entry) => entry.id === id && entry.company_id === companyId) ?? null;
     }
 
@@ -333,7 +372,7 @@ export class FinancingRepository {
   }
 
   async updateStatus(input: UpdateStatusInput) {
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('financing_requests')) || !(await tableExists('financing_status_events'))) {
       const target = inMemoryStore.find((entry) => entry.id === input.id && entry.company_id === input.companyId);
 
       if (!target) {

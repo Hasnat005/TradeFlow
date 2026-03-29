@@ -56,47 +56,189 @@ const emptySummary: DashboardSummary = {
 };
 
 export class DashboardRepository {
+  private async getAvailableTables(tableNames: string[]) {
+    if (!pgPool || tableNames.length === 0) {
+      return new Set<string>();
+    }
+
+    const result = await pgPool.query<{ table_name: string }>(
+      `
+      select table_name
+      from unnest($1::text[]) as table_name
+      where to_regclass(table_name) is not null
+      `,
+      [tableNames],
+    );
+
+    return new Set(result.rows.map((row) => row.table_name));
+  }
+
+  private async getAvailableColumns(tableName: string, columnNames: string[]) {
+    if (!pgPool || !tableName || columnNames.length === 0) {
+      return new Set<string>();
+    }
+
+    const result = await pgPool.query<{ column_name: string }>(
+      `
+      select column_name
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = $1
+        and column_name = any($2::text[])
+      `,
+      [tableName, columnNames],
+    );
+
+    return new Set(result.rows.map((row) => row.column_name));
+  }
+
   async getSummary(companyId: string): Promise<DashboardSummary> {
     if (!pgPool) {
       return emptySummary;
     }
 
+    const tables = await this.getAvailableTables([
+      'ledger_entries',
+      'invoices',
+      'financing_requests',
+      'transactions',
+      'companies',
+    ]);
+
+    const hasLedgerEntries = tables.has('ledger_entries');
+    const hasInvoices = tables.has('invoices');
+    const hasFinancingRequests = tables.has('financing_requests');
+    const hasTransactions = tables.has('transactions');
+    const hasCompanies = tables.has('companies');
+
+    const invoiceColumns = hasInvoices
+      ? await this.getAvailableColumns('invoices', ['amount', 'total_amount', 'paid_amount', 'status', 'due_date'])
+      : new Set<string>();
+    const financingColumns = hasFinancingRequests
+      ? await this.getAvailableColumns('financing_requests', ['approved_amount', 'requested_amount', 'amount_paid', 'status'])
+      : new Set<string>();
+    const companyColumns = hasCompanies
+      ? await this.getAvailableColumns('companies', ['credit_limit'])
+      : new Set<string>();
+
+    const hasInvoiceAmount = invoiceColumns.has('amount');
+    const hasInvoiceTotalAmount = invoiceColumns.has('total_amount');
+    const hasInvoicePaidAmount = invoiceColumns.has('paid_amount');
+    const hasInvoiceStatus = invoiceColumns.has('status');
+    const hasInvoiceDueDate = invoiceColumns.has('due_date');
+
+    const invoiceAmountExpr = hasInvoiceTotalAmount
+      ? hasInvoicePaidAmount
+        ? `greatest(coalesce(total_amount, 0) - coalesce(paid_amount, 0), 0)`
+        : `coalesce(total_amount, 0)`
+      : hasInvoiceAmount
+        ? `coalesce(amount, 0)`
+        : `0`;
+
+    const invoicePendingFilter = hasInvoiceStatus
+      ? `status in ('Draft', 'Sent', 'Overdue', 'Pending')`
+      : `true`;
+    const invoiceOverdueFilter = hasInvoiceStatus ? `status = 'Overdue'` : `false`;
+    const invoicePendingPaymentsFilter = hasInvoiceDueDate
+      ? hasInvoiceStatus
+        ? `(status = 'Overdue' or due_date <= current_date)`
+        : `(due_date <= current_date)`
+      : `false`;
+    const invoiceDueTodayFilter = hasInvoiceDueDate
+      ? hasInvoiceStatus
+        ? `(due_date = current_date and status <> 'Paid')`
+        : `(due_date = current_date)`
+      : `false`;
+    const invoiceUnpaidFilter = hasInvoiceStatus ? `status <> 'Paid'` : `true`;
+
+    const hasApprovedAmount = financingColumns.has('approved_amount');
+    const hasRequestedAmount = financingColumns.has('requested_amount');
+    const hasAmountPaid = financingColumns.has('amount_paid');
+    const hasFinancingStatus = financingColumns.has('status');
+
+    const financingPrincipalExpr = hasApprovedAmount && hasRequestedAmount
+      ? `coalesce(approved_amount, requested_amount, 0)`
+      : hasApprovedAmount
+        ? `coalesce(approved_amount, 0)`
+        : hasRequestedAmount
+          ? `coalesce(requested_amount, 0)`
+          : `0`;
+    const financingOpenAmountExpr = hasAmountPaid
+      ? `greatest(${financingPrincipalExpr} - coalesce(amount_paid, 0), 0)`
+      : financingPrincipalExpr;
+    const financingActiveFilter = hasFinancingStatus
+      ? `status in ('Approved', 'Disbursed')`
+      : `true`;
+
+    const companyCreditLimitExpr = companyColumns.has('credit_limit')
+      ? `coalesce(credit_limit, 0)::float8`
+      : `0::float8`;
+
     const result = await pgPool.query<DashboardSummaryRow>(
       `
       with ledger_stats as (
-        select coalesce(sum(case when entry_type = 'credit' then amount else -amount end), 0)::float8 as available_balance
-        from ledger_entries
-        where company_id = $1
+        ${
+          hasLedgerEntries
+            ? `select coalesce(sum(case when entry_type = 'credit' then amount else -amount end), 0)::float8 as available_balance
+               from ledger_entries
+               where company_id = $1`
+            : `select 0::float8 as available_balance`
+        }
       ),
       invoice_stats as (
-        select
-          coalesce(sum(greatest(total_amount - paid_amount, 0)) filter (where status in ('Draft', 'Sent', 'Overdue')), 0)::float8 as outstanding_invoices_amount,
-          coalesce(sum(greatest(total_amount - paid_amount, 0)) filter (where status = 'Overdue' or due_date <= current_date), 0)::float8 as pending_payments_amount,
-          count(*) filter (where status in ('Draft', 'Sent', 'Overdue'))::int as pending_invoices_count,
-          count(*) filter (where status = 'Overdue')::int as overdue_invoices_count,
-          count(*) filter (where due_date = current_date and status <> 'Paid')::int as payments_due_today_count,
-          count(*) filter (where (status = 'Overdue' or due_date <= current_date) and status <> 'Paid')::int as pending_payments_count
-        from invoices
-        where company_id = $1
+        ${
+          hasInvoices
+            ? `select
+                 coalesce(sum(${invoiceAmountExpr}) filter (where ${invoicePendingFilter}), 0)::float8 as outstanding_invoices_amount,
+                 coalesce(sum(${invoiceAmountExpr}) filter (where ${invoicePendingPaymentsFilter}), 0)::float8 as pending_payments_amount,
+                 count(*) filter (where ${invoicePendingFilter})::int as pending_invoices_count,
+                 count(*) filter (where ${invoiceOverdueFilter})::int as overdue_invoices_count,
+                 count(*) filter (where ${invoiceDueTodayFilter})::int as payments_due_today_count,
+                 count(*) filter (where ${invoicePendingPaymentsFilter} and ${invoiceUnpaidFilter})::int as pending_payments_count
+               from invoices
+               where company_id = $1`
+            : `select
+                 0::float8 as outstanding_invoices_amount,
+                 0::float8 as pending_payments_amount,
+                 0::int as pending_invoices_count,
+                 0::int as overdue_invoices_count,
+                 0::int as payments_due_today_count,
+                 0::int as pending_payments_count`
+        }
       ),
       financing_stats as (
-        select
-          coalesce(sum(greatest(coalesce(approved_amount, requested_amount) - amount_paid, 0)) filter (where status in ('Approved', 'Disbursed')), 0)::float8 as active_financing_amount,
-          coalesce(sum(greatest(coalesce(approved_amount, requested_amount) - amount_paid, 0)) filter (where status in ('Approved', 'Disbursed')), 0)::float8 as used_credit,
-          count(*) filter (where status in ('Approved', 'Disbursed'))::int as active_facilities_count
-        from financing_requests
-        where company_id = $1
+        ${
+          hasFinancingRequests
+            ? `select
+                 coalesce(sum(${financingOpenAmountExpr}) filter (where ${financingActiveFilter}), 0)::float8 as active_financing_amount,
+                 coalesce(sum(${financingOpenAmountExpr}) filter (where ${financingActiveFilter}), 0)::float8 as used_credit,
+                 count(*) filter (where ${financingActiveFilter})::int as active_facilities_count
+               from financing_requests
+               where company_id = $1`
+            : `select
+                 0::float8 as active_financing_amount,
+                 0::float8 as used_credit,
+                 0::int as active_facilities_count`
+        }
       ),
       transaction_stats as (
-        select count(*)::int as total_transactions
-        from transactions
-        where company_id = $1
+        ${
+          hasTransactions
+            ? `select count(*)::int as total_transactions
+               from transactions
+               where company_id = $1`
+            : `select 0::int as total_transactions`
+        }
       ),
       company_stats as (
-        select coalesce(credit_limit, 0)::float8 as credit_limit
-        from companies
-        where id = $1
-        limit 1
+        ${
+          hasCompanies
+            ? `select ${companyCreditLimitExpr} as credit_limit
+               from companies
+               where id = $1
+               limit 1`
+            : `select 0::float8 as credit_limit`
+        }
       )
       select
         coalesce((select available_balance from ledger_stats), 0)::float8 as available_balance,
@@ -120,6 +262,29 @@ export class DashboardRepository {
 
   async getRecentTransactions(companyId: string, limit: number): Promise<RecentTransaction[]> {
     if (!pgPool) {
+      return [];
+    }
+
+    const tables = await this.getAvailableTables([
+      'transactions',
+      'invoice_status_events',
+      'invoices',
+      'financing_status_events',
+      'financing_requests',
+    ]);
+
+    const feeds: string[] = [];
+    if (tables.has('transactions')) {
+      feeds.push('select * from transaction_feed');
+    }
+    if (tables.has('invoice_status_events') && tables.has('invoices')) {
+      feeds.push('select * from invoice_feed');
+    }
+    if (tables.has('financing_status_events') && tables.has('financing_requests')) {
+      feeds.push('select * from financing_feed');
+    }
+
+    if (feeds.length === 0) {
       return [];
     }
 
@@ -186,11 +351,7 @@ export class DashboardRepository {
         feed.status::text as status,
         feed.source::text as source
       from (
-        select * from transaction_feed
-        union all
-        select * from invoice_feed
-        union all
-        select * from financing_feed
+        ${feeds.join('\n        union all\n        ')}
       ) feed
       order by feed.timestamp desc
       limit $2

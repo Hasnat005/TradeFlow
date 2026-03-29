@@ -70,6 +70,40 @@ type ListOrdersFilter = {
 
 const inMemoryOrders: PurchaseOrderRecord[] = [];
 
+async function tableExists(tableName: string) {
+  if (!pgPool) {
+    return false;
+  }
+
+  const result = await pgPool.query<{ exists: boolean }>(
+    `
+    select to_regclass($1) is not null as exists
+    `,
+    [tableName],
+  );
+
+  return Boolean(result.rows[0]?.exists);
+}
+
+async function getAvailableColumns(tableName: string, columnNames: string[]) {
+  if (!pgPool || columnNames.length === 0) {
+    return new Set<string>();
+  }
+
+  const result = await pgPool.query<{ column_name: string }>(
+    `
+    select column_name
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = $1
+      and column_name = any($2::text[])
+    `,
+    [tableName, columnNames],
+  );
+
+  return new Set(result.rows.map((row) => row.column_name));
+}
+
 function calculateTotal(
   items: Array<{
     itemName: string;
@@ -81,6 +115,10 @@ function calculateTotal(
 }
 
 async function getNextPoNumber(client: PoolClient, companyId: string) {
+  if (!(await tableExists('purchase_orders'))) {
+    return `PO-${1000 + inMemoryOrders.length + 1}`;
+  }
+
   const result = await client.query<{ po_number: string }>(
     `
     select po_number
@@ -104,13 +142,24 @@ async function mapOrderWithItems(orderId: string, companyId: string) {
     return inMemoryOrders.find((order) => order.id === orderId && order.company_id === companyId) ?? null;
   }
 
+  const hasOrdersTable = await tableExists('purchase_orders');
+  if (!hasOrdersTable) {
+    return inMemoryOrders.find((order) => order.id === orderId && order.company_id === companyId) ?? null;
+  }
+
+  const hasOrderItemsTable = await tableExists('order_items');
+  const orderColumns = await getAvailableColumns('purchase_orders', ['linked_invoice_id']);
+  const linkedInvoiceSelect = orderColumns.has('linked_invoice_id')
+    ? 'linked_invoice_id'
+    : 'null::text as linked_invoice_id';
+
   const orderResult = await pgPool.query<
     Omit<PurchaseOrderRecord, 'items'>
   >(
     `
     select id, company_id, po_number, supplier_name, total_amount::float8 as total_amount,
            status, expected_delivery_date::text as expected_delivery_date,
-           notes, linked_invoice_id, created_at::text as created_at, updated_at::text as updated_at
+           notes, ${linkedInvoiceSelect}, created_at::text as created_at, updated_at::text as updated_at
     from purchase_orders
     where id = $1 and company_id = $2
     limit 1
@@ -124,15 +173,17 @@ async function mapOrderWithItems(orderId: string, companyId: string) {
     return null;
   }
 
-  const itemsResult = await pgPool.query<OrderItemRecord>(
-    `
-    select id, order_id, item_name, quantity, unit_price::float8 as unit_price
-    from order_items
-    where order_id = $1
-    order by id asc
-    `,
-    [orderId],
-  );
+  const itemsResult = hasOrderItemsTable
+    ? await pgPool.query<OrderItemRecord>(
+        `
+        select id, order_id, item_name, quantity, unit_price::float8 as unit_price
+        from order_items
+        where order_id = $1
+        order by id asc
+        `,
+        [orderId],
+      )
+    : { rows: [] as OrderItemRecord[] };
 
   return {
     ...order,
@@ -142,7 +193,7 @@ async function mapOrderWithItems(orderId: string, companyId: string) {
 
 export class OrdersRepository {
   async create(input: CreateOrderInput) {
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('purchase_orders')) || !(await tableExists('order_items'))) {
       const now = new Date().toISOString();
       const poNumber = `PO-${1000 + inMemoryOrders.length + 1}`;
       const orderId = randomUUID();
@@ -237,7 +288,7 @@ export class OrdersRepository {
   async findAllByCompany(companyId: string, filter: ListOrdersFilter = {}) {
     const { status, search, from, to } = filter;
 
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('purchase_orders'))) {
       const query = search?.trim().toLowerCase();
 
       return inMemoryOrders.filter((order) => {
@@ -274,11 +325,17 @@ export class OrdersRepository {
       values.push(to);
     }
 
+    const hasOrderItemsTable = await tableExists('order_items');
+    const orderColumns = await getAvailableColumns('purchase_orders', ['linked_invoice_id']);
+    const linkedInvoiceSelect = orderColumns.has('linked_invoice_id')
+      ? 'linked_invoice_id'
+      : 'null::text as linked_invoice_id';
+
     const ordersResult = await pgPool.query<Omit<PurchaseOrderRecord, 'items'>>(
       `
       select id, company_id, po_number, supplier_name, total_amount::float8 as total_amount,
              status, expected_delivery_date::text as expected_delivery_date,
-             notes, linked_invoice_id, created_at::text as created_at, updated_at::text as updated_at
+             notes, ${linkedInvoiceSelect}, created_at::text as created_at, updated_at::text as updated_at
       from purchase_orders
       where ${clauses.join(' and ')}
       order by created_at desc
@@ -289,15 +346,17 @@ export class OrdersRepository {
     const orders: PurchaseOrderRecord[] = [];
 
     for (const order of ordersResult.rows) {
-      const itemsResult = await pgPool.query<OrderItemRecord>(
-        `
-        select id, order_id, item_name, quantity, unit_price::float8 as unit_price
-        from order_items
-        where order_id = $1
-        order by id asc
-        `,
-        [order.id],
-      );
+      const itemsResult = hasOrderItemsTable
+        ? await pgPool.query<OrderItemRecord>(
+            `
+            select id, order_id, item_name, quantity, unit_price::float8 as unit_price
+            from order_items
+            where order_id = $1
+            order by id asc
+            `,
+            [order.id],
+          )
+        : { rows: [] as OrderItemRecord[] };
 
       orders.push({
         ...order,
@@ -313,7 +372,7 @@ export class OrdersRepository {
   }
 
   async update(input: UpdateOrderInput) {
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('purchase_orders'))) {
       const target = inMemoryOrders.find((order) => order.id === input.id && order.company_id === input.companyId);
       if (!target) {
         return null;
@@ -381,7 +440,7 @@ export class OrdersRepository {
         ],
       );
 
-      if (input.items) {
+      if (input.items && (await tableExists('order_items'))) {
         await client.query('delete from order_items where order_id = $1', [input.id]);
         for (const item of input.items) {
           await client.query(
@@ -403,7 +462,7 @@ export class OrdersRepository {
   }
 
   async updateStatus(input: UpdateOrderStatusInput) {
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('purchase_orders'))) {
       const target = inMemoryOrders.find((order) => order.id === input.id && order.company_id === input.companyId);
       if (!target) {
         return null;
@@ -427,7 +486,7 @@ export class OrdersRepository {
   }
 
   async linkInvoice(orderId: string, companyId: string, invoiceId: string) {
-    if (!pgPool) {
+    if (!pgPool || !(await tableExists('purchase_orders'))) {
       const target = inMemoryOrders.find((order) => order.id === orderId && order.company_id === companyId);
       if (!target) {
         return null;
@@ -436,6 +495,11 @@ export class OrdersRepository {
       target.linked_invoice_id = invoiceId;
       target.updated_at = new Date().toISOString();
       return target;
+    }
+
+    const orderColumns = await getAvailableColumns('purchase_orders', ['linked_invoice_id']);
+    if (!orderColumns.has('linked_invoice_id')) {
+      return this.findById(orderId, companyId);
     }
 
     await pgPool.query(

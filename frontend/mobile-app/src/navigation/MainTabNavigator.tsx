@@ -45,7 +45,7 @@ export function MainTabNavigator() {
         },
         tabBarItemStyle: styles.tabBarItem,
         tabBarLabel: ({ color, focused }) => (
-          <Text style={{ color, fontSize: 12, fontWeight: focused ? '700' : '500' }}>
+          <Text style={{ color, fontSize: 12, fontWeight: focused ? '700' : '500', opacity: focused ? 1 : 0.75 }}>
             {route.name}
           </Text>
         ),
@@ -67,11 +67,11 @@ export function MainTabNavigator() {
           };
 
           return (
-            <View style={styles.iconWrap}>
+            <View style={[styles.iconWrap, { opacity: focused ? 1 : 0.72 }]}>
               {focused ? <View style={[styles.activeIndicator, { backgroundColor: theme.colors.primary }]} /> : null}
               <Ionicons
                 name={focused ? filledIconByRoute[route.name] : outlineIconByRoute[route.name]}
-                size={size ?? 24}
+                size={(size ?? 24) + 1}
                 color={color}
               />
             </View>
@@ -91,7 +91,7 @@ export function MainTabNavigator() {
 const styles = StyleSheet.create({
   iconWrap: {
     width: 44,
-    minHeight: 28,
+    minHeight: 30,
     alignItems: 'center',
     justifyContent: 'flex-end',
   },

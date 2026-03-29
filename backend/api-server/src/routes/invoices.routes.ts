@@ -24,7 +24,6 @@ invoicesRouter.use(authenticateJwt);
 
 invoicesRouter.get(
   '/',
-  validateRequest({ query: invoiceListQuerySchema }),
   asyncHandler((req, res) => invoicesController.listInvoices(req, res)),
 );
 

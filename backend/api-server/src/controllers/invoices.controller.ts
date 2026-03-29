@@ -9,18 +9,22 @@ export class InvoicesController {
 
   async listInvoices(req: Request, res: Response) {
     const auth = getAuthContext(req);
-    const query = req.query as {
-      status?: InvoiceStatus;
-      search?: string;
-      from?: string;
-      to?: string;
-    };
+    const rawStatus = Array.isArray(req.query.status) ? req.query.status[0] : req.query.status;
+    const rawSearch = Array.isArray(req.query.search) ? req.query.search[0] : req.query.search;
+    const rawFrom = Array.isArray(req.query.from) ? req.query.from[0] : req.query.from;
+    const rawTo = Array.isArray(req.query.to) ? req.query.to[0] : req.query.to;
+
+    const allowedStatuses: InvoiceStatus[] = ['Draft', 'Sent', 'Financed', 'Paid', 'Overdue'];
+    const status =
+      typeof rawStatus === 'string' && allowedStatuses.includes(rawStatus as InvoiceStatus)
+        ? (rawStatus as InvoiceStatus)
+        : undefined;
 
     const data = await this.invoicesService.listInvoices(auth, {
-      status: query.status,
-      search: query.search,
-      from: query.from,
-      to: query.to,
+      status,
+      search: typeof rawSearch === 'string' ? rawSearch : undefined,
+      from: typeof rawFrom === 'string' ? rawFrom : undefined,
+      to: typeof rawTo === 'string' ? rawTo : undefined,
     });
 
     res.status(200).json({ success: true, data });

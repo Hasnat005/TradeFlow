@@ -155,9 +155,40 @@ async function mapInvoiceWithItems(invoiceId: string, companyId: string) {
   };
 }
 
+async function tableExists(tableName: string) {
+  if (!pgPool) {
+    return false;
+  }
+
+  const result = await pgPool.query<{ exists: string | null }>(
+    `
+    select to_regclass($1)::text as exists
+    `,
+    [tableName],
+  );
+
+  return Boolean(result.rows[0]?.exists);
+}
+
+async function hasInvoiceCoreTables() {
+  if (!pgPool) {
+    return false;
+  }
+
+  const [hasInvoices, hasInvoiceItems, hasInvoiceStatusEvents] = await Promise.all([
+    tableExists('invoices'),
+    tableExists('invoice_items'),
+    tableExists('invoice_status_events'),
+  ]);
+
+  return hasInvoices && hasInvoiceItems && hasInvoiceStatusEvents;
+}
+
 export class InvoicesRepository {
   async markOverdueByCompany(companyId: string) {
-    if (!pgPool) {
+    const canUseDb = await hasInvoiceCoreTables();
+
+    if (!canUseDb) {
       const now = new Date().toISOString().slice(0, 10);
       const updated: string[] = [];
 
@@ -185,7 +216,12 @@ export class InvoicesRepository {
       return;
     }
 
-    await pgPool.query(
+    const pool = pgPool;
+    if (!pool) {
+      return;
+    }
+
+    await pool.query(
       `
       with updated as (
         update invoices
@@ -211,7 +247,9 @@ export class InvoicesRepository {
   }
 
   async create(input: CreateInvoiceInput) {
-    if (!pgPool) {
+    const canUseDb = await hasInvoiceCoreTables();
+
+    if (!canUseDb) {
       const now = new Date().toISOString();
       const invoiceId = `INV-${1000 + inMemoryInvoices.length + 1}`;
       const items: InvoiceItemRecord[] = input.items.map((item) => ({
@@ -249,7 +287,12 @@ export class InvoicesRepository {
       return created;
     }
 
-    const client = await pgPool.connect();
+    const pool = pgPool;
+    if (!pool) {
+      throw new Error('Database pool unavailable');
+    }
+
+    const client = await pool.connect();
 
     try {
       await client.query('begin');
@@ -319,13 +362,20 @@ export class InvoicesRepository {
   }
 
   async hasDuplicateForPurchaseOrder(companyId: string, purchaseOrderId: string) {
-    if (!pgPool) {
+    const canUseDb = await tableExists('invoices');
+
+    if (!canUseDb) {
       return inMemoryInvoices.some(
         (invoice) => invoice.company_id === companyId && invoice.purchase_order_id === purchaseOrderId,
       );
     }
 
-    const result = await pgPool.query<{ count: string }>(
+    const pool = pgPool;
+    if (!pool) {
+      return false;
+    }
+
+    const result = await pool.query<{ count: string }>(
       `
       select count(*)::text as count
       from invoices
@@ -340,7 +390,9 @@ export class InvoicesRepository {
   async findAllByCompany(companyId: string, filter: ListInvoicesFilter = {}) {
     const { status, search, from, to } = filter;
 
-    if (!pgPool) {
+    const canUseDb = await tableExists('invoices');
+
+    if (!canUseDb) {
       const query = search?.trim().toLowerCase();
 
       return inMemoryInvoices
@@ -378,7 +430,12 @@ export class InvoicesRepository {
       values.push(to);
     }
 
-    const result = await pgPool.query<InvoiceRow>(
+    const pool = pgPool;
+    if (!pool) {
+      return [];
+    }
+
+    const result = await pool.query<InvoiceRow>(
       `
       select
         i.id,
@@ -405,15 +462,28 @@ export class InvoicesRepository {
   }
 
   async findById(id: string, companyId: string) {
+    const canUseDb = await hasInvoiceCoreTables();
+    if (!canUseDb) {
+      const inMemory = inMemoryInvoices.find((invoice) => invoice.id === id && invoice.company_id === companyId);
+      return inMemory ? mapInMemoryInvoiceWithPo(inMemory) : null;
+    }
+
     return mapInvoiceWithItems(id, companyId);
   }
 
   async getTimeline(invoiceId: string) {
-    if (!pgPool) {
+    const canUseDb = await tableExists('invoice_status_events');
+
+    if (!canUseDb) {
       return inMemoryEvents.filter((event) => event.invoice_id === invoiceId);
     }
 
-    const result = await pgPool.query<InvoiceStatusEventRecord>(
+    const pool = pgPool;
+    if (!pool) {
+      return [];
+    }
+
+    const result = await pool.query<InvoiceStatusEventRecord>(
       `
       select id, invoice_id, status, changed_at::text as changed_at
       from invoice_status_events
@@ -427,7 +497,9 @@ export class InvoicesRepository {
   }
 
   async updateStatus(input: UpdateInvoiceStatusInput) {
-    if (!pgPool) {
+    const canUseDb = await hasInvoiceCoreTables();
+
+    if (!canUseDb) {
       const target = inMemoryInvoices.find((invoice) => invoice.id === input.id && invoice.company_id === input.companyId);
       if (!target) {
         return null;
@@ -447,7 +519,12 @@ export class InvoicesRepository {
       return mapInMemoryInvoiceWithPo(target);
     }
 
-    const client = await pgPool.connect();
+    const pool = pgPool;
+    if (!pool) {
+      return null;
+    }
+
+    const client = await pool.connect();
 
     try {
       await client.query('begin');
@@ -521,7 +598,10 @@ export class InvoicesRepository {
   }
 
   async findOrderById(orderId: string, companyId: string) {
-    if (!pgPool) {
+    const hasPurchaseOrders = await tableExists('purchase_orders');
+    const hasOrderItems = await tableExists('order_items');
+
+    if (!pgPool || !hasPurchaseOrders || !hasOrderItems) {
       return null;
     }
 
@@ -568,7 +648,9 @@ export class InvoicesRepository {
   }
 
   async linkOrderToInvoice(orderId: string, companyId: string, invoiceId: string) {
-    if (!pgPool) {
+    const hasPurchaseOrders = await tableExists('purchase_orders');
+
+    if (!pgPool || !hasPurchaseOrders) {
       return;
     }
 

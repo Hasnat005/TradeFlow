@@ -45,7 +45,9 @@ export function DashboardOverviewScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation<NavigationProp<MainTabParamList>>();
 
+  const userName = useAppStore((state) => state.userName);
   const companyName = useAppStore((state) => state.companyName ?? 'TradeFlow Business');
+  const displayName = userName && userName.trim().length > 0 ? userName : companyName;
 
   const [refreshing, setRefreshing] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
@@ -90,6 +92,7 @@ export function DashboardOverviewScreen() {
     () => [
       {
         title: 'Available Balance',
+        iconName: 'wallet-outline' as const,
         amount: summary?.available_balance ?? 0,
         insight: `${summary?.total_transactions ?? 0} transactions`,
         additional: 'Live ledger balance',
@@ -97,6 +100,7 @@ export function DashboardOverviewScreen() {
       },
       {
         title: 'Outstanding Invoices',
+        iconName: 'document-text-outline' as const,
         amount: summary?.outstanding_invoices_amount ?? 0,
         insight: `${summary?.pending_invoices_count ?? 0} invoices pending`,
         additional: 'Awaiting collection',
@@ -104,6 +108,7 @@ export function DashboardOverviewScreen() {
       },
       {
         title: 'Active Financing',
+        iconName: 'cash-outline' as const,
         amount: summary?.active_financing_amount ?? 0,
         insight: `${summary?.active_facilities_count ?? 0} active facilities`,
         additional: 'In approved/disbursed state',
@@ -111,6 +116,7 @@ export function DashboardOverviewScreen() {
       },
       {
         title: 'Pending Payments',
+        iconName: 'card-outline' as const,
         amount: summary?.pending_payments_amount ?? 0,
         insight: `${summary?.pending_payments_count ?? 0} payments pending`,
         additional: `${summary?.payments_due_today_count ?? 0} due today`,
@@ -224,7 +230,7 @@ export function DashboardOverviewScreen() {
 
   const isInitialLoading = (summaryLoading || activityLoading) && !summary;
   const hasError = summaryError || activityError;
-  const listBottomPadding = tabBarHeight + 84;
+  const listBottomPadding = tabBarHeight + 76;
 
   const onToggleSeeMore = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -247,12 +253,13 @@ export function DashboardOverviewScreen() {
         ListHeaderComponent={
           <View style={styles.headerContainer}>
             <HeaderBar
-              companyName={companyName}
-              subtitle="Finance Overview"
+              displayName={displayName}
+              subtitle="Here's your financial overview"
               availableBalance={summary?.available_balance ?? 0}
               isBalanceVisible={showBalance}
+              notificationCount={dashboardAlerts.length}
               onToggleBalance={() => setShowBalance((value) => !value)}
-              onPressNotifications={() => navigation.navigate('Profile')}
+              onPressNotifications={() => navigation.navigate('Invoices', { screen: 'InvoiceList' })}
               onPressProfile={() => navigation.navigate('Profile')}
             />
 
@@ -304,6 +311,7 @@ export function DashboardOverviewScreen() {
                 <MetricCard
                   key={metric.title}
                   title={metric.title}
+                  iconName={metric.iconName}
                   amount={metric.amount}
                   insight={metric.insight}
                   additional={metric.additional}
@@ -341,25 +349,40 @@ export function DashboardOverviewScreen() {
             {hasError ? (
               <View style={[styles.errorCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}> 
                 <Text style={[styles.errorTitle, { color: theme.colors.text }]}>Unable to load dashboard</Text>
-                <Text style={[styles.errorSubtitle, { color: theme.colors.muted }]}>Please retry fetching your latest financial data.</Text>
-                <Pressable
-                  onPress={() => {
-                    void onRefresh();
-                  }}
-                  style={({ pressed }) => [
-                    styles.retryButton,
-                    { backgroundColor: theme.colors.primary, opacity: pressed ? 0.9 : 1 },
-                  ]}
-                >
-                  <Text style={[styles.retryButtonText, { color: theme.colors.onPrimary }]}>Retry</Text>
-                </Pressable>
+                <Text style={[styles.errorSubtitle, { color: theme.colors.muted }]}>Please check your connection and backend status, then retry.</Text>
+                <View style={styles.errorActionRow}>
+                  <Pressable
+                    onPress={() => {
+                      void onRefresh();
+                    }}
+                    style={({ pressed }) => [
+                      styles.retryButton,
+                      { backgroundColor: theme.colors.primary, opacity: pressed ? 0.9 : 1 },
+                    ]}
+                  >
+                    <Text style={[styles.retryButtonText, { color: theme.colors.onPrimary }]}>Retry</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => navigation.navigate('Invoices', { screen: 'CreateInvoice' })}
+                    style={({ pressed }) => [
+                      styles.secondaryButton,
+                      {
+                        borderColor: theme.colors.border,
+                        backgroundColor: pressed ? `${theme.colors.primary}10` : 'transparent',
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.secondaryButtonText, { color: theme.colors.primary }]}>Create Invoice</Text>
+                  </Pressable>
+                </View>
               </View>
             ) : null}
 
             {!activityLoading && !hasError && recentActivity.length === 0 ? (
               <View style={[styles.emptyCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}> 
-                <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No recent activity yet</Text>
-                <Text style={[styles.emptySubtitle, { color: theme.colors.muted }]}>New invoice, financing, and transaction events will appear here.</Text>
+                <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No transactions yet</Text>
+                <Text style={[styles.emptySubtitle, { color: theme.colors.muted }]}>Create your first invoice to start seeing dashboard activity.</Text>
               </View>
             ) : null}
           </View>
@@ -395,7 +418,7 @@ const styles = StyleSheet.create({
   contentContainer: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    gap: 10,
+    gap: 12,
   },
   headerContainer: {
     gap: 16,
@@ -404,23 +427,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 14,
     padding: 14,
-    gap: 8,
+    gap: 10,
   },
   metricScrollContent: {
     gap: 10,
-    paddingRight: 10,
+    paddingRight: 12,
   },
   seeMoreButton: {
     alignSelf: 'center',
-    minHeight: 34,
+    minHeight: 40,
     borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 14,
+    borderRadius: 12,
+    paddingHorizontal: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   seeMoreText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
   },
   actionsGrid: {
@@ -440,6 +463,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 14,
     padding: 14,
+    gap: 10,
+  },
+  errorActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   errorTitle: {
@@ -458,6 +486,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   retryButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  secondaryButton: {
+    minHeight: 38,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  secondaryButtonText: {
     fontSize: 12,
     fontWeight: '700',
   },
