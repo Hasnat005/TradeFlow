@@ -1,7 +1,13 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppButton } from '../components/common/AppButton';
+import { AppCard } from '../components/common/AppCard';
+import { AppInput } from '../components/common/AppInput';
+import { DateField, startOfToday } from '../components/common/DateField';
 import { PurchaseOrderItem } from '../features/orders/types';
 import {
   useCreateOrderMutation,
@@ -34,6 +40,7 @@ export function CreatePurchaseOrderScreen({ route, navigation }: Props) {
   const theme = useAppTheme();
   const editOrderId = route.params?.orderId;
   const initialValues = route.params?.initialValues;
+  const notesRef = useRef<TextInput>(null);
 
   const createOrderMutation = useCreateOrderMutation();
   const updateOrderMutation = useUpdateOrderMutation(editOrderId ?? '');
@@ -69,6 +76,35 @@ export function CreatePurchaseOrderScreen({ route, navigation }: Props) {
   );
 
   const total = useMemo(() => calculateOrderTotal(parsedItems), [parsedItems]);
+  const [today, setToday] = useState(() => startOfToday());
+  const supplierError = useMemo(() => {
+    if (!errorText) {
+      return undefined;
+    }
+
+    if (errorText.includes('Supplier name')) {
+      return 'Supplier name is required.';
+    }
+
+    return undefined;
+  }, [errorText]);
+  const expectedDateError = useMemo(() => {
+    if (!errorText || expectedDeliveryDate.trim().length === 0) {
+      return undefined;
+    }
+
+    if (errorText.includes('delivery date')) {
+      return errorText;
+    }
+
+    return undefined;
+  }, [errorText, expectedDeliveryDate]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setToday(startOfToday());
+    }, []),
+  );
 
   const updateItem = (id: string, field: keyof EditableItem, value: string) => {
     setItems((previous) => previous.map((item) => (item.id === id ? { ...item, [field]: value } : item)));
@@ -90,6 +126,17 @@ export function CreatePurchaseOrderScreen({ route, navigation }: Props) {
 
     if (supplierName.trim().length < 2 || expectedDeliveryDate.trim().length === 0) {
       setErrorText('Supplier name and expected delivery date are required.');
+      return;
+    }
+
+    const selectedDeliveryDate = new Date(`${expectedDeliveryDate.trim()}T00:00:00`);
+    if (Number.isNaN(selectedDeliveryDate.getTime())) {
+      setErrorText('Expected delivery date is invalid.');
+      return;
+    }
+
+    if (selectedDeliveryDate < today) {
+      setErrorText('Expected delivery date cannot be earlier than today.');
       return;
     }
 
@@ -140,41 +187,48 @@ export function CreatePurchaseOrderScreen({ route, navigation }: Props) {
   };
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}> 
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+      <AppCard>
         <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Purchase Order Details</Text>
 
-        <TextInput
+        <AppInput
+          label="Supplier / Vendor Name"
           value={supplierName}
           onChangeText={setSupplierName}
           placeholder="Supplier / Vendor name"
-          placeholderTextColor={theme.colors.muted}
-          style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text }]}
+          returnKeyType="next"
+          onSubmitEditing={() => notesRef.current?.focus()}
+          errorText={supplierError}
         />
 
-        <TextInput
+        <DateField
+          label="Expected Delivery Date"
           value={expectedDeliveryDate}
-          onChangeText={setExpectedDeliveryDate}
-          placeholder="Expected delivery date (YYYY-MM-DD)"
-          placeholderTextColor={theme.colors.muted}
-          style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text }]}
+          onChange={setExpectedDeliveryDate}
+          placeholder="Select date"
+          minDate={today}
+          errorText={expectedDateError}
         />
 
-        <TextInput
+        <AppInput
+          ref={notesRef}
+          label="Notes"
           value={notes}
           onChangeText={setNotes}
           placeholder="Notes (optional)"
           multiline
-          placeholderTextColor={theme.colors.muted}
+          returnKeyType="default"
           style={[styles.textArea, { borderColor: theme.colors.border, color: theme.colors.text }]}
         />
-      </View>
+      </AppCard>
 
-      <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}> 
+      <AppCard>
         <View style={styles.rowBetween}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Items</Text>
           <Pressable onPress={addItem} style={styles.inlineButton}>
@@ -224,46 +278,38 @@ export function CreatePurchaseOrderScreen({ route, navigation }: Props) {
           <Text style={[styles.totalLabel, { color: theme.colors.text }]}>Total Amount</Text>
           <Text style={[styles.totalValue, { color: theme.colors.primary }]}>{formatCurrency(total)}</Text>
         </View>
-      </View>
+      </AppCard>
 
       {errorText ? <Text style={[styles.errorText, { color: theme.colors.danger }]}>{errorText}</Text> : null}
 
       <View style={styles.actionsWrap}>
-        <Pressable
-            onPress={() => {
-              void submit(false);
-            }}
-          style={({ pressed }) => [
-            styles.secondaryAction,
-            {
-              borderColor: theme.colors.border,
-              backgroundColor: pressed ? `${theme.colors.primary}12` : 'transparent',
-            },
-          ]}
-        >
-          <Text style={[styles.secondaryActionText, { color: theme.colors.text }]}>Save as Draft</Text>
-        </Pressable>
+        <AppButton
+          label="Save as Draft"
+          onPress={() => {
+            void submit(false);
+          }}
+          disabled={createOrderMutation.isPending || updateOrderMutation.isPending || updateOrderStatusMutation.isPending}
+          variant="secondary"
+        />
 
-        <Pressable
-            onPress={() => {
-              void submit(true);
-            }}
-          style={({ pressed }) => [
-            styles.primaryAction,
-            { backgroundColor: theme.colors.primary, opacity: pressed ? 0.92 : 1 },
-          ]}
-        >
-          <Text style={[styles.primaryActionText, { color: theme.colors.onPrimary }]}>Submit Order</Text>
-        </Pressable>
+        <AppButton
+          label="Submit Order"
+          onPress={() => {
+            void submit(true);
+          }}
+          disabled={createOrderMutation.isPending || updateOrderMutation.isPending || updateOrderStatusMutation.isPending}
+          loading={createOrderMutation.isPending || updateOrderMutation.isPending || updateOrderStatusMutation.isPending}
+        />
       </View>
-    </ScrollView>
+      </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 16, gap: 12, paddingBottom: 24 },
-  card: { borderWidth: 1, borderRadius: 14, padding: 14, gap: 10 },
   sectionTitle: { fontSize: 15, fontWeight: '700' },
   input: {
     minHeight: 42,
@@ -324,26 +370,5 @@ const styles = StyleSheet.create({
   },
   actionsWrap: {
     gap: 10,
-  },
-  secondaryAction: {
-    minHeight: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryActionText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  primaryAction: {
-    minHeight: 46,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryActionText: {
-    fontSize: 14,
-    fontWeight: '700',
   },
 });

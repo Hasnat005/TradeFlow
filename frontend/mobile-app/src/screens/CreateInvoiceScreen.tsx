@@ -1,7 +1,12 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppButton } from '../components/common/AppButton';
+import { AppCard } from '../components/common/AppCard';
+import { AppInput } from '../components/common/AppInput';
+import { DateField, startOfToday } from '../components/common/DateField';
 import { useCreateInvoiceMutation } from '../features/invoices/hooks/useInvoices';
 import { InvoiceLineItem } from '../features/invoices/types';
 import { calculateInvoiceTotal, formatCurrency } from '../features/invoices/utils';
@@ -26,11 +31,10 @@ function createEditableLineItem(id: number): EditableLineItem {
   };
 }
 
-const DUE_DATE_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
-
 export function CreateInvoiceScreen({ navigation }: Props) {
   const theme = useAppTheme();
   const createInvoiceMutation = useCreateInvoiceMutation();
+  const purchaseOrderRef = useRef<TextInput>(null);
 
   const [buyerName, setBuyerName] = useState('');
   const [purchaseOrderId, setPurchaseOrderId] = useState('');
@@ -53,6 +57,29 @@ export function CreateInvoiceScreen({ navigation }: Props) {
   );
 
   const totalAmount = useMemo(() => calculateInvoiceTotal(parsedLineItems), [parsedLineItems]);
+  const today = useMemo(() => startOfToday(), []);
+  const buyerNameError = useMemo(() => {
+    if (!errorText) {
+      return undefined;
+    }
+
+    if (errorText.includes('Buyer name')) {
+      return 'Buyer name is required.';
+    }
+
+    return undefined;
+  }, [errorText]);
+  const dueDateError = useMemo(() => {
+    if (!errorText || dueDate.trim().length === 0) {
+      return undefined;
+    }
+
+    if (errorText.includes('Due date')) {
+      return errorText;
+    }
+
+    return undefined;
+  }, [dueDate, errorText]);
 
   const updateLineItem = (id: string, field: keyof EditableLineItem, value: string) => {
     setLineItems((previous) =>
@@ -81,8 +108,14 @@ export function CreateInvoiceScreen({ navigation }: Props) {
       return;
     }
 
-    if (!DUE_DATE_FORMAT.test(dueDate.trim())) {
-      setErrorText('Due date must be in YYYY-MM-DD format.');
+    const selectedDueDate = new Date(`${dueDate.trim()}T00:00:00`);
+    if (Number.isNaN(selectedDueDate.getTime())) {
+      setErrorText('Due date is invalid.');
+      return;
+    }
+
+    if (selectedDueDate < today) {
+      setErrorText('Due date cannot be earlier than today.');
       return;
     }
 
@@ -110,56 +143,46 @@ export function CreateInvoiceScreen({ navigation }: Props) {
   };
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      <View
-        style={[
-          styles.card,
-          {
-            backgroundColor: theme.colors.surface,
-            borderColor: theme.colors.border,
-          },
-        ]}
-      >
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+      <AppCard>
         <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Invoice Information</Text>
 
-        <TextInput
+        <AppInput
+          label="Buyer Name"
           value={buyerName}
           onChangeText={setBuyerName}
           placeholder="Buyer name"
-          placeholderTextColor={theme.colors.muted}
-          style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text }]}
+          returnKeyType="next"
+          onSubmitEditing={() => purchaseOrderRef.current?.focus()}
+          errorText={buyerNameError}
         />
 
-        <TextInput
+        <AppInput
+          ref={purchaseOrderRef}
+          label="Purchase Order ID"
           value={purchaseOrderId}
           onChangeText={setPurchaseOrderId}
           placeholder="Purchase order ID (optional)"
-          placeholderTextColor={theme.colors.muted}
-          style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text }]}
+          returnKeyType="done"
         />
 
-        <TextInput
+        <DateField
+          label="Due Date"
           value={dueDate}
-          onChangeText={setDueDate}
-          placeholder="Due date (YYYY-MM-DD)"
-          placeholderTextColor={theme.colors.muted}
-          style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text }]}
+          onChange={setDueDate}
+          placeholder="Select date"
+          minDate={today}
+          errorText={dueDateError}
         />
-      </View>
+      </AppCard>
 
-      <View
-        style={[
-          styles.card,
-          {
-            backgroundColor: theme.colors.surface,
-            borderColor: theme.colors.border,
-          },
-        ]}
-      >
+      <AppCard>
         <View style={styles.rowBetween}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Line Items</Text>
           <Pressable onPress={addLineItem} style={styles.smallButton}>
@@ -210,45 +233,32 @@ export function CreateInvoiceScreen({ navigation }: Props) {
           <Text style={[styles.totalLabel, { color: theme.colors.text }]}>Total Amount</Text>
           <Text style={[styles.totalValue, { color: theme.colors.primary }]}>{formatCurrency(totalAmount)}</Text>
         </View>
-      </View>
+      </AppCard>
 
       {errorText ? <Text style={[styles.errorText, { color: theme.colors.danger }]}>{errorText}</Text> : null}
 
       <View style={styles.submitRow}>
-        <Pressable
+        <AppButton
+          label="Save Draft"
           onPress={() => {
             void submit('Draft');
           }}
           disabled={createInvoiceMutation.isPending}
-          style={({ pressed }) => [
-            styles.secondarySubmitButton,
-            {
-              borderColor: theme.colors.border,
-              backgroundColor: pressed ? `${theme.colors.primary}12` : 'transparent',
-              opacity: createInvoiceMutation.isPending ? 0.6 : 1,
-            },
-          ]}
-        >
-          <Text style={[styles.secondarySubmitButtonText, { color: theme.colors.text }]}>Save Draft</Text>
-        </Pressable>
+          variant="secondary"
+        />
 
-        <Pressable
+        <AppButton
+          label="Create & Send"
           onPress={() => {
             void submit('Sent');
           }}
           disabled={createInvoiceMutation.isPending}
-          style={({ pressed }) => [
-            styles.submitButton,
-            {
-              backgroundColor: theme.colors.primary,
-              opacity: pressed || createInvoiceMutation.isPending ? 0.92 : 1,
-            },
-          ]}
-        >
-          <Text style={[styles.submitButtonText, { color: theme.colors.onPrimary }]}>Create & Send</Text>
-        </Pressable>
+          loading={createInvoiceMutation.isPending}
+        />
       </View>
-    </ScrollView>
+      </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -260,12 +270,6 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
     paddingBottom: 28,
-  },
-  card: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    gap: 10,
   },
   sectionTitle: {
     fontSize: 15,
@@ -322,28 +326,5 @@ const styles = StyleSheet.create({
   submitRow: {
     flexDirection: 'row',
     gap: 8,
-  },
-  submitButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  submitButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  secondarySubmitButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondarySubmitButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
   },
 });

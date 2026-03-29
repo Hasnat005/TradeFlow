@@ -51,4 +51,5 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
+  NotificationHistory: undefined;
 };

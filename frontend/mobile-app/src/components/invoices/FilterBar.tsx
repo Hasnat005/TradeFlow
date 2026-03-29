@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { DateField } from '../common/DateField';
 import { InvoiceDateRange, InvoiceStatusFilter } from '../../features/invoices/types';
 import { useAppTheme } from '../../hooks/useAppTheme';
 
@@ -23,6 +24,8 @@ export function FilterBar({
   onDateRangeChange,
 }: FilterBarProps) {
   const theme = useAppTheme();
+  const fromDate = dateRange.from ? new Date(`${dateRange.from}T00:00:00`) : undefined;
+  const toDate = dateRange.to ? new Date(`${dateRange.to}T00:00:00`) : undefined;
 
   return (
     <View style={styles.wrapper}>
@@ -66,35 +69,39 @@ export function FilterBar({
       </ScrollView>
 
       <View style={styles.dateRow}>
-        <TextInput
-          value={dateRange.from ?? ''}
-          onChangeText={(value) => onDateRangeChange({ ...dateRange, from: value || undefined })}
-          placeholder="From (YYYY-MM-DD)"
-          placeholderTextColor={theme.colors.muted}
-          style={[
-            styles.dateInput,
-            {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.border,
-              color: theme.colors.text,
-            },
-          ]}
-        />
+        <View style={styles.dateInputWrap}>
+          <DateField
+            label="From"
+            value={dateRange.from}
+            onChange={(value) => {
+              if (!value) {
+                onDateRangeChange({ ...dateRange, from: undefined });
+                return;
+              }
 
-        <TextInput
-          value={dateRange.to ?? ''}
-          onChangeText={(value) => onDateRangeChange({ ...dateRange, to: value || undefined })}
-          placeholder="To (YYYY-MM-DD)"
-          placeholderTextColor={theme.colors.muted}
-          style={[
-            styles.dateInput,
-            {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.border,
-              color: theme.colors.text,
-            },
-          ]}
-        />
+              if (dateRange.to && value > dateRange.to) {
+                onDateRangeChange({ ...dateRange, from: value, to: undefined });
+                return;
+              }
+
+              onDateRangeChange({ ...dateRange, from: value });
+            }}
+            placeholder="Select date"
+            maxDate={toDate}
+            allowClear
+          />
+        </View>
+
+        <View style={styles.dateInputWrap}>
+          <DateField
+            label="To"
+            value={dateRange.to}
+            onChange={(value) => onDateRangeChange({ ...dateRange, to: value || undefined })}
+            placeholder="Select date"
+            minDate={fromDate}
+            allowClear
+          />
+        </View>
       </View>
     </View>
   );
@@ -125,12 +132,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  dateInput: {
+  dateInputWrap: {
     flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
-    minHeight: 42,
-    paddingHorizontal: 10,
-    fontSize: 13,
   },
 });

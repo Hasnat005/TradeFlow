@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { NavigationProp, useFocusEffect, useNavigation } from '@react-navigation/native';
+import { CompositeNavigationProp, NavigationProp, useFocusEffect, useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
@@ -27,8 +28,9 @@ import { SectionHeader } from '../components/dashboard/SectionHeader';
 import { useRecentTransactionsQuery, useDashboardSummaryQuery } from '../features/dashboard/hooks/useDashboard';
 import { DashboardActivity } from '../features/dashboard/types';
 import { useAppTheme } from '../hooks/useAppTheme';
-import { MainTabParamList } from '../navigation/types';
+import { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { useAppStore } from '../store/useAppStore';
+import { useNotificationStore } from '../store/useNotificationStore';
 
 function formatTimestamp(value: string) {
   const parsed = new Date(value);
@@ -43,7 +45,7 @@ export function DashboardOverviewScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
-  const navigation = useNavigation<NavigationProp<MainTabParamList>>();
+  const navigation = useNavigation<CompositeNavigationProp<NavigationProp<MainTabParamList>, NativeStackNavigationProp<RootStackParamList>>>();
 
   const userName = useAppStore((state) => state.userName);
   const companyName = useAppStore((state) => state.companyName ?? 'TradeFlow Business');
@@ -52,6 +54,8 @@ export function DashboardOverviewScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
   const [showMoreActions, setShowMoreActions] = useState(false);
+  const unreadNotifications = useNotificationStore((state) => state.unreadCount);
+  const seedFromDashboardAlerts = useNotificationStore((state) => state.seedFromDashboardAlerts);
 
   useEffect(() => {
     const isFabric = Boolean((global as { nativeFabricUIManager?: unknown }).nativeFabricUIManager);
@@ -210,8 +214,12 @@ export function DashboardOverviewScreen() {
     [navigation],
   );
 
-  const dashboardAlerts = summary?.alerts ?? [];
+  const dashboardAlerts = useMemo(() => summary?.alerts ?? [], [summary?.alerts]);
   const recentActivity = activity ?? [];
+
+  useEffect(() => {
+    seedFromDashboardAlerts(dashboardAlerts);
+  }, [dashboardAlerts, seedFromDashboardAlerts]);
 
   const renderActivity = useCallback(
     ({ item }: { item: DashboardActivity }) => (
@@ -257,9 +265,9 @@ export function DashboardOverviewScreen() {
               subtitle="Here's your financial overview"
               availableBalance={summary?.available_balance ?? 0}
               isBalanceVisible={showBalance}
-              notificationCount={dashboardAlerts.length}
+              notificationCount={unreadNotifications}
               onToggleBalance={() => setShowBalance((value) => !value)}
-              onPressNotifications={() => navigation.navigate('Invoices', { screen: 'InvoiceList' })}
+              onPressNotifications={() => navigation.navigate('NotificationHistory')}
               onPressProfile={() => navigation.navigate('Profile')}
             />
 

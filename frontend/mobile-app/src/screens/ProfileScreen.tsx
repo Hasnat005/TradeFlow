@@ -1,5 +1,6 @@
+import { NavigationProp, useNavigation } from '@react-navigation/native';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -12,6 +13,7 @@ import { InfoRow } from '../components/profile/InfoRow';
 import { ProfileHeader } from '../components/profile/ProfileHeader';
 import { SectionCard } from '../components/profile/SectionCard';
 import { SettingsItem } from '../components/profile/SettingsItem';
+import { ProfileSkeleton } from '../components/profile/ProfileSkeleton';
 import { ToggleItem } from '../components/profile/ToggleItem';
 import {
   ProfileResponseData,
@@ -22,10 +24,13 @@ import {
   useUploadDocumentMutation,
 } from '../features/profile/hooks/useProfile';
 import { useAppTheme } from '../hooks/useAppTheme';
+import { RootStackParamList } from '../navigation/types';
 import { useAppStore } from '../store/useAppStore';
 import { useProfileStore } from '../store/useProfileStore';
+import { useNotificationStore } from '../store/useNotificationStore';
 
 export function ProfileScreen() {
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const theme = useAppTheme();
   const logout = useAppStore((state) => state.logout);
   const toggleThemeMode = useAppStore((state) => state.toggleThemeMode);
@@ -35,6 +40,7 @@ export function ProfileScreen() {
   const setProfile = useProfileStore((state) => state.setProfile);
   const notificationPreferences = useProfileStore((state) => state.notificationPreferences);
   const setNotificationPreference = useProfileStore((state) => state.setNotificationPreference);
+  const unreadNotifications = useNotificationStore((state) => state.unreadCount);
 
   const profileQuery = useProfileQuery();
   const updateProfileMutation = useUpdateProfileMutation();
@@ -236,6 +242,19 @@ export function ProfileScreen() {
     void profileQuery.refetch();
   };
 
+  const confirmLogout = () => {
+    Alert.alert('Log out?', 'You will need to sign in again to access your account.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log out',
+        style: 'destructive',
+        onPress: () => {
+          void logout();
+        },
+      },
+    ]);
+  };
+
   const hasMutationInFlight = useMemo(
     () =>
       updateProfileMutation.isPending ||
@@ -251,11 +270,7 @@ export function ProfileScreen() {
   );
 
   if (isLoading) {
-    return (
-      <SafeAreaView style={[styles.centered, { backgroundColor: theme.colors.background }]}> 
-        <ActivityIndicator size="small" color={theme.colors.primary} />
-      </SafeAreaView>
-    );
+    return <ProfileSkeleton />;
   }
 
   if (isError) {
@@ -273,8 +288,10 @@ export function ProfileScreen() {
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={[styles.container, { backgroundColor: theme.colors.background }]}> 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <SectionCard title="Company Info" icon="business-outline">
+        <SectionCard title="Account" icon="person-circle-outline">
           <ProfileHeader
+            displayName={user?.name ?? 'User'}
+            email={user?.email}
             companyName={company?.companyName ?? '—'}
             industry={company?.industryType ?? 'Business account'}
             verified={company?.verified}
@@ -337,7 +354,7 @@ export function ProfileScreen() {
           )}
         </SectionCard>
 
-        <SectionCard title="Account Summary" icon="wallet-outline">
+        <SectionCard title="Billing & Account Summary" icon="wallet-outline">
           <InfoRow label="Available Balance" value={formatCurrency(accountSummary?.availableBalance ?? 0)} />
           <InfoRow label="Credit Limit" value={formatCurrency(accountSummary?.creditLimit ?? 0)} />
           <InfoRow label="Active Financing" value={String(accountSummary?.activeFinancingCount ?? 0)} />
@@ -477,13 +494,17 @@ export function ProfileScreen() {
             icon="log-out-outline"
             title="Logout"
             danger
-            onPress={() => {
-              void logout();
-            }}
+            onPress={confirmLogout}
           />
         </SectionCard>
 
-        <SectionCard title="Settings" icon="settings-outline">
+        <SectionCard title="Preferences" icon="settings-outline">
+          <SettingsItem
+            icon="notifications-outline"
+            title="Notification History"
+            subtitle={unreadNotifications > 0 ? `${unreadNotifications} unread updates` : 'Review past alerts and updates'}
+            onPress={() => navigation.navigate('NotificationHistory')}
+          />
           <ToggleItem
             icon="cash-outline"
             title="Payment Alerts"
@@ -508,6 +529,12 @@ export function ProfileScreen() {
             value={themeMode === 'dark'}
             onValueChange={() => toggleThemeMode()}
           />
+        </SectionCard>
+
+        <SectionCard title="App Info" icon="information-circle-outline">
+          <InfoRow label="Application" value="TradeFlow Mobile" />
+          <InfoRow label="Version" value="1.0.0" />
+          <InfoRow label="Support" value="support@tradeflow.app" />
         </SectionCard>
       </ScrollView>
     </SafeAreaView>

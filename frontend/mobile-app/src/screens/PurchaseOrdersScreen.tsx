@@ -3,7 +3,9 @@ import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { DateField } from '../components/common/DateField';
 import { OrdersEmptyState } from '../components/orders/OrdersEmptyState';
 import { OrdersLoadingSkeleton } from '../components/orders/OrdersLoadingSkeleton';
 import { OrderCard } from '../components/orders/OrderCard';
@@ -37,6 +39,14 @@ export function PurchaseOrdersScreen({ navigation }: Props) {
   );
 
   const { data: filteredOrders = [], isLoading, isError, refetch } = useOrdersListQuery(query);
+  const fromDate = useMemo(
+    () => (dateRange.from ? new Date(`${dateRange.from}T00:00:00`) : undefined),
+    [dateRange.from],
+  );
+  const toDate = useMemo(
+    () => (dateRange.to ? new Date(`${dateRange.to}T00:00:00`) : undefined),
+    [dateRange.to],
+  );
 
   const summary = useMemo(() => {
     const pendingCount = filteredOrders.filter((order) => ['Draft', 'Sent'].includes(order.status)).length;
@@ -58,7 +68,7 @@ export function PurchaseOrdersScreen({ navigation }: Props) {
   const listBottomPadding = tabBarHeight + 92;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.container, { backgroundColor: theme.colors.background }]}> 
       <FlatList
         data={filteredOrders}
         keyExtractor={(item) => item.id}
@@ -140,20 +150,40 @@ export function PurchaseOrdersScreen({ navigation }: Props) {
             </ScrollView>
 
             <View style={styles.dateRow}>
-              <TextInput
-                value={dateRange.from ?? ''}
-                onChangeText={(value) => setDateRange((prev) => ({ ...prev, from: value || undefined }))}
-                placeholder="From (YYYY-MM-DD)"
-                placeholderTextColor={theme.colors.muted}
-                style={[styles.dateInput, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface, color: theme.colors.text }]}
-              />
-              <TextInput
-                value={dateRange.to ?? ''}
-                onChangeText={(value) => setDateRange((prev) => ({ ...prev, to: value || undefined }))}
-                placeholder="To (YYYY-MM-DD)"
-                placeholderTextColor={theme.colors.muted}
-                style={[styles.dateInput, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface, color: theme.colors.text }]}
-              />
+              <View style={styles.dateInputWrap}>
+                <DateField
+                  label="From"
+                  value={dateRange.from}
+                  onChange={(value) =>
+                    setDateRange((prev) => {
+                      if (!value) {
+                        return { ...prev, from: undefined };
+                      }
+
+                      if (prev.to && value > prev.to) {
+                        return { ...prev, from: value, to: undefined };
+                      }
+
+                      return { ...prev, from: value };
+                    })
+                  }
+                  placeholder="Select date"
+                  maxDate={toDate}
+                  allowClear
+                />
+              </View>
+              <View style={styles.dateInputWrap}>
+                <DateField
+                  label="To"
+                  value={dateRange.to}
+                  onChange={(value) =>
+                    setDateRange((prev) => ({ ...prev, to: value || undefined }))
+                  }
+                  placeholder="Select date"
+                  minDate={fromDate}
+                  allowClear
+                />
+              </View>
             </View>
 
             <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Orders</Text>
@@ -196,7 +226,7 @@ export function PurchaseOrdersScreen({ navigation }: Props) {
         <Ionicons name="add" size={18} color={theme.colors.onPrimary} />
         <Text style={[styles.fabText, { color: theme.colors.onPrimary }]}>New Purchase Order</Text>
       </Pressable>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -271,6 +301,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 10,
     fontSize: 13,
+  },
+  dateInputWrap: {
+    flex: 1,
   },
   sectionTitle: {
     fontSize: 14,

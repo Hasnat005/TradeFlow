@@ -3,7 +3,9 @@ import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppCard } from '../components/common/AppCard';
 import { EmptyState } from '../components/invoices/EmptyState';
 import { FilterBar } from '../components/invoices/FilterBar';
 import { InvoiceCard } from '../components/invoices/InvoiceCard';
@@ -50,7 +52,7 @@ export function InvoicesScreen({ navigation }: Props) {
   const listBottomPadding = tabBarHeight + 88;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <FlatList
         data={invoices}
         keyExtractor={(item) => item.id}
@@ -79,13 +81,13 @@ export function InvoicesScreen({ navigation }: Props) {
                       : theme.colors.info;
 
               return (
-                <View
+                <AppCard
                   key={alert.id}
-                  style={[styles.alertCard, { borderColor, backgroundColor: theme.colors.surface }]}
+                  style={[styles.alertCard, { borderColor }]}
                 >
                   <Text style={[styles.alertTitle, { color: theme.colors.text }]}>{alert.title}</Text>
                   <Text style={[styles.alertDescription, { color: theme.colors.muted }]}>{alert.description}</Text>
-                </View>
+                </AppCard>
               );
             })}
           </View>
@@ -134,7 +136,7 @@ export function InvoicesScreen({ navigation }: Props) {
         <Ionicons name="add" size={18} color={theme.colors.onPrimary} />
         <Text style={[styles.fabText, { color: theme.colors.onPrimary }]}>Create Invoice</Text>
       </Pressable>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -159,9 +161,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   alertCard: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 10,
     gap: 4,
   },
   alertTitle: {
